@@ -1,4 +1,4 @@
-name: pytorch
+name: base
 channels:
   - pytorch
   - anaconda
