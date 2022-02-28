@@ -166,12 +166,12 @@ dependencies:
   - zlib=1.2.11=h7f8727e_4
   - zstd=1.4.9=haebb681_0
   - pip:
-    - astroid==2.9.3
-    - isort==5.10.1
-    - lazy-object-proxy==1.7.1
-    - mccabe==0.6.1
-    - opencv-python==4.5.5.62
-    - platformdirs==2.4.1
-    - pylint==2.12.2
-    - toml==0.10.2
-    - wrapt==1.13.3
+      - astroid==2.9.3
+      - isort==5.10.1
+      - lazy-object-proxy==1.7.1
+      - mccabe==0.6.1
+      - opencv-python==4.5.5.62
+      - platformdirs==2.4.1
+      - pylint==2.12.2
+      - toml==0.10.2
+      - wrapt==1.13.3
