@@ -8,7 +8,7 @@ from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim import Adam
 from torchvision.models import DenseNet
-from .models import UNet
+# from models import UNet
 from sklearn.metrics import confusion_matrix
 
 
@@ -20,7 +20,7 @@ block_config = (2, 2, 2, 2)
 num_init_features = 64
 bn_size = 4
 drop_rate = 0
-batch_size = 128
+batch_size = 1
 patch_size = 224  # currently, this needs to be 224 due to densenet architecture
 num_epochs = 100
 phases = ["train", "val"]  # how many phases did we create databases for?
@@ -31,9 +31,8 @@ validation_phases = ["val"]
 
 def main():
     train_dir = "data/train"
-    labels = "PennPathologistSlideClassification-GroundTruth2019.csv"
-    filtration = FilterManager(
-        FilterManager=[FilterBlackAndWhite(), FilterHSV()])
+    labels = "label_initial.csv"
+    filtration = None # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
 
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(device)
@@ -51,11 +50,12 @@ def main():
         dataset[phase] = Dataset(
             data_dir=train_dir, labels=labels, filtration=filtration)
         dataLoader[phase] = DataLoader(dataset[phase], batch_size=batch_size,
-                                       shuffle=True, num_workers=8, pin_memory=True)
+                                       shuffle=True, num_workers=0, pin_memory=True)
         print(f"{phase} dataset size:\t{len(dataset[phase])}")
     criterion = nn.CrossEntropyLoss()
 
     best_loss_on_test = np.Infinity
+    edge_weight = 1.0
     edge_weight = torch.tensor(edge_weight).to(device)
     for epoch in tqdm(range(num_epochs)):
         # zero out epoch based performance variables
@@ -72,16 +72,16 @@ def main():
                 model.eval()   # Set model to evaluate mode
 
             # for each of the batches
-            for ii, (X, label, img_orig) in enumerate(dataLoader[phase]):
+            for ii, (X, label) in enumerate(dataLoader[phase]):
                 X = X.to(device)  # [Nbatch, 3, H, W]
                 # [Nbatch, 1] with class indices (0, 1, 2,...num_classes)
-                label = label.type('torch.LongTensor').to(device)
+                label = torch.tensor(list(map(lambda x: int(x), label))).to(device)
 
                 # dynamically set gradient computation, in case of validation, this isn't needed
                 with torch.set_grad_enabled(phase == 'train'):
                     # disabling is good practice and improves inference time
 
-                    prediction = model(X)  # [N, Nclass]
+                    prediction = model(X.permute(0, 3, 1, 2).float())  # [N, Nclass]
                     loss = criterion(prediction, label)
 
                     if phase == "train":  # in case we're in train mode, need to do back propogation
