@@ -25,6 +25,7 @@ parser.add_argument('--num-init-features', type=int, default=64)
 parser.add_argument('--bn-size', type=int, default=4)
 parser.add_argument('--drop-rate', type=int, default=0)
 parser.add_argument('--patch-size', type=int, default=224)
+parser.add_argument('--labels', type=str, default='labels_initial.csv')
 
 args = vars(parser.parse_args())
 
@@ -41,6 +42,7 @@ drop_rate = args['drop_rate']
 batch_size = args['batch_size']
 patch_size = args['patch_size']  # currently, this needs to be 224 due to densenet architecture
 num_epochs = args['num_epochs']
+labels = args['labels']
 phases = ["train"]  # how many phases did we create databases for?
 # when should we do valiation? note that validation is *very* time consuming, so as opposed to doing for both training and validation, we do it only for vlaidation at the end of the epoch
 validation_phases = []
@@ -48,10 +50,9 @@ validation_phases = []
 
 
 def main():
-    train_dir = "data/train"
-    labels = "label_initial.csv"
+    train_dir = SM_CHANNEL_TRAIN
+    # test_dir = SM_CHANNEL_TEST
     filtration = None # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
-
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(device)
     model = DenseNet(growth_rate=growth_rate, block_config=block_config,
@@ -64,7 +65,6 @@ def main():
     dataLoader = {}
     for phase in phases:  # now for each of the phases, we're creating the dataloader
         # interestingly, given the batch size, i've not seen any improvements from using a num_workers>0
-
         dataset[phase] = Dataset(
             data_dir=train_dir, labels=labels, filtration=filtration)
         dataLoader[phase] = DataLoader(dataset[phase], batch_size=batch_size,
