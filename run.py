@@ -4,6 +4,8 @@ from filtration import FilterManager, FilterBlackAndWhite, FilterHSV
 from tqdm import tqdm
 import numpy as np
 import torch
+import os
+import argparse
 from torch import nn
 from torch.utils.data import DataLoader
 from torch.optim import Adam
@@ -12,20 +14,36 @@ from torchvision.models import DenseNet
 from sklearn.metrics import confusion_matrix
 
 
+parser = argparse.ArgumentParser()
+parser.add_argument('--num-epochs', type=int, default=1)
+parser.add_argument('--batch-size', type=int, default=64)
+parser.add_argument('--num-classes', type=int, default=3)
+parser.add_argument('--in-channels', type=int, default=3)
+parser.add_argument('--growth-rate', type=int, default=32)
+parser.add_argument('--block-config', type=tuple, default=(2, 2, 2, 2))
+parser.add_argument('--num-init-features', type=int, default=64)
+parser.add_argument('--bn-size', type=int, default=4)
+parser.add_argument('--drop-rate', type=int, default=0)
+parser.add_argument('--patch-size', type=int, default=224)
+
+args = vars(parser.parse_args())
+
 dataname = "digpath_supervised"
-num_classes = 3  # number of classes in the data mask that we'll aim to predict
-in_channels = 3  # input channel of the data, RGB = 3
-growth_rate = 32
-block_config = (2, 2, 2, 2)
-num_init_features = 64
-bn_size = 4
-drop_rate = 0
-batch_size = 1
-patch_size = 224  # currently, this needs to be 224 due to densenet architecture
-num_epochs = 100
-phases = ["train", "val"]  # how many phases did we create databases for?
+SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
+SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
+num_classes = args['num_classes']  # number of classes in the data mask that we'll aim to predict
+in_channels = args['in_channels']  # input channel of the data, RGB = 3
+growth_rate = args['growth_rate']
+block_config = args['block_config']
+num_init_features = args['num_init_features']
+bn_size = args['bn_size']
+drop_rate = args['drop_rate']
+batch_size = args['batch_size']
+patch_size = args['patch_size']  # currently, this needs to be 224 due to densenet architecture
+num_epochs = args['num_epochs']
+phases = ["train"]  # how many phases did we create databases for?
 # when should we do valiation? note that validation is *very* time consuming, so as opposed to doing for both training and validation, we do it only for vlaidation at the end of the epoch
-validation_phases = ["val"]
+validation_phases = []
 # additionally, using simply [], will skip validation entirely, drastically speeding things up
 
 
