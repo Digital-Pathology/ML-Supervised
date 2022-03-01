@@ -26,6 +26,7 @@ parser.add_argument('--bn-size', type=int, default=4)
 parser.add_argument('--drop-rate', type=int, default=0)
 parser.add_argument('--patch-size', type=int, default=224)
 parser.add_argument('--labels', type=str, default='labels_initial.csv')
+parser.add_argument('--num-workers', type=int, default=0)
 
 args = vars(parser.parse_args())
 
@@ -43,6 +44,7 @@ batch_size = args['batch_size']
 patch_size = args['patch_size']  # currently, this needs to be 224 due to densenet architecture
 num_epochs = args['num_epochs']
 labels = args['labels']
+num_workers = args['num_workers']
 phases = ["train"]  # how many phases did we create databases for?
 # when should we do valiation? note that validation is *very* time consuming, so as opposed to doing for both training and validation, we do it only for vlaidation at the end of the epoch
 validation_phases = []
@@ -68,7 +70,7 @@ def main():
         dataset[phase] = Dataset(
             data_dir=train_dir, labels=labels, filtration=filtration)
         dataLoader[phase] = DataLoader(dataset[phase], batch_size=batch_size,
-                                       shuffle=True, num_workers=0, pin_memory=True)
+                                       shuffle=True, num_workers=num_workers, pin_memory=True)
         print(f"{phase} dataset size:\t{len(dataset[phase])}")
     criterion = nn.CrossEntropyLoss()
 
