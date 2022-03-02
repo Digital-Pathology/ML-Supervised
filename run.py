@@ -43,7 +43,7 @@ drop_rate = args['drop_rate']
 batch_size = args['batch_size']
 patch_size = args['patch_size']  # currently, this needs to be 224 due to densenet architecture
 num_epochs = args['num_epochs']
-labels = args['labels']
+labels = f'{os.getcwd()}/{args["labels"]}'
 num_workers = args['num_workers']
 phases = ["train"]  # how many phases did we create databases for?
 # when should we do valiation? note that validation is *very* time consuming, so as opposed to doing for both training and validation, we do it only for vlaidation at the end of the epoch
