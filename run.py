@@ -4,7 +4,7 @@ from filtration import FilterManager, FilterBlackAndWhite, FilterHSV
 from tqdm import tqdm
 import numpy as np
 import torch
-import os, sys
+import os
 import argparse
 from torch import nn
 from torch.utils.data import DataLoader
@@ -43,7 +43,7 @@ drop_rate = args['drop_rate']
 batch_size = args['batch_size']
 patch_size = args['patch_size']  # currently, this needs to be 224 due to densenet architecture
 num_epochs = args['num_epochs']
-labels = os.path.join(os.getcwd(), args['labels'])
+labels = f'{os.getcwd()}/{args["labels"]}'
 num_workers = args['num_workers']
 phases = ["train"]  # how many phases did we create databases for?
 # when should we do valiation? note that validation is *very* time consuming, so as opposed to doing for both training and validation, we do it only for vlaidation at the end of the epoch
@@ -53,7 +53,6 @@ validation_phases = []
 
 def main():
     train_dir = SM_CHANNEL_TRAIN
-    sys.path.append(train_dir)
     # test_dir = SM_CHANNEL_TEST
     filtration = None # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
