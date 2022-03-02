@@ -53,6 +53,8 @@ validation_phases = []
 
 def main():
     train_dir = SM_CHANNEL_TRAIN
+    print(train_dir)
+    os.listdir(train_dir)
     # test_dir = SM_CHANNEL_TEST
     filtration = None # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
