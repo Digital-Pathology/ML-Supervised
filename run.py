@@ -1,8 +1,8 @@
 from types import new_class
 from unicodedata import decimal
 from dataset import Dataset
-from filtration import FilterManager, FilterBlackAndWhite, FilterHSV
-from model_manager_for_web_app import ModelManager, ManagedModel
+#nfrom filtration import FilterManager, FilterBlackAndWhite, FilterHSV
+from model_manager import ModelManager
 from tqdm import tqdm
 import numpy as np
 import torch
@@ -58,7 +58,7 @@ validation_phases = ['val']
 # additionally, using simply [], will skip validation entirely, drastically speeding things up
 
 
-class MyManagedModel(ManagedModel):
+class MyModel:
     def __init__(self, model, loss_fn, device, all_acc, all_loss, cmatrix):
         self.model = model
         self.loss_fn = loss_fn
@@ -148,7 +148,7 @@ def main():
         all_loss = {key: torch.zeros(0).to(device) for key in phases}
         cmatrix = {key: np.zeros((num_classes, num_classes)) for key in phases}
 
-        my_model = MyManagedModel(model, criterion, device, all_acc, all_loss, cmatrix)
+        my_model = MyModel(model, criterion, device, all_acc, all_loss, cmatrix)
         my_model.train_model(optim, dataLoader['train'])
         my_model.eval(dataLoader['val'])
 
@@ -172,7 +172,7 @@ def main():
                      'num_classes': num_classes}
 
             # torch.save(state, f"{dataname}_densenet_best_model.pth")
-            manager.save_model(model_name=f"{dataname}_densenet_best_model", model=model, model_info=state, overwrite_model = True)
+            manager.save_model(model_name=f"{dataname}_densenet_best_model", model=model, model_info=state, overwrite_model=True)
         else:
             print("")
     diagnose_example(model, manager, dataset, device)
