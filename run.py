@@ -37,6 +37,7 @@ args = vars(parser.parse_args())
 dataname = "digpath_supervised"
 SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
 SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
+SM_OUTPUT_DIR = os.getenv('SM_OUTPUT_DIR')
 num_classes = args['num_classes']  # number of classes in the data mask that we'll aim to predict
 in_channels = args['in_channels']  # input channel of the data, RGB = 3
 growth_rate = args['growth_rate']
@@ -49,7 +50,6 @@ patch_size = args['patch_size']  # currently, this needs to be 224 due to densen
 num_epochs = args['num_epochs']
 train_labels = f'{os.getcwd()}/{args["train_labels"]}'
 test_labels = f'{os.getcwd()}/{args["test_labels"]}'
-output_dir = f'{os.getcwd()}/output'
 num_workers = args['num_workers']
 edge_weight = args['edge_weight']
 phases = ["train", 'val']  # how many phases did we create databases for?
@@ -114,6 +114,7 @@ class MyManagedModel(ManagedModel):
 def main():
     train_dir = SM_CHANNEL_TRAIN
     test_dir = SM_CHANNEL_TEST
+    output_dir = SM_OUTPUT_DIR
     filtration = None # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(device)
