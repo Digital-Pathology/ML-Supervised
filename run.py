@@ -59,7 +59,7 @@ validation_phases = ['val']
 
 
 class MyModel:
-    def __init__(self, model, loss_fn, device, all_acc, all_loss, cmatrix):
+    def __init__(self, model: nn.Module, loss_fn: nn.Module, device: str, all_acc: dict, all_loss: dict, cmatrix: dict):
         self.model = model
         self.loss_fn = loss_fn
         self.device = device
@@ -67,9 +67,10 @@ class MyModel:
         self.all_loss = all_loss
         self.cmatrix = cmatrix
 
-    def train_model(self, optimizer, data_loader):
+    def train_model(self, optimizer: torch.optim.Optimizer, data_loader: DataLoader):
         self.model.train()
-        for ii, (X, label) in enumerate(data_loader):
+        for ii, (X, label) in (pbar := tqdm(enumerate(data_loader))):
+            pbar.set_description(f'training_progress_{ii}', refresh=True)
             X = X.to(self.device)
             label = torch.tensor(
                 list(map(lambda x: int(x), label))).to(self.device)
@@ -87,9 +88,10 @@ class MyModel:
             self.cmatrix['train'] / self.cmatrix['train'].sum()).trace()
         self.all_loss['train'] = self.all_loss['train'].cpu().numpy().mean()
 
-    def eval(self, data_loader):
+    def eval(self, data_loader: DataLoader):
         self.model.eval()
-        for ii, (X, label) in enumerate(data_loader):
+        for ii, (X, label) in (pbar := tqdm(enumerate(data_loader))):
+            pbar.set_description(f'validation_progress_{ii}', refresh=True)
             X = X.to(self.device)
             label = torch.tensor(
                 list(map(lambda x: int(x), label))).to(self.device)
@@ -110,10 +112,11 @@ class MyModel:
                                self.cmatrix['val'].sum()).trace()
         self.all_loss['val'] = self.all_loss['val'].cpu().numpy().mean()
 
-    def diagnose(self, region_stream):
+    def diagnose(self, region_stream: DataLoader):
         votes = {0: 0, 1: 0, 2: 0}
         key = {0: 'MILD', 1: 'Moderate', 2: 'Severe'}
-        for region in region_stream:
+        for ii, region in (pbar := tqdm(enumerate(region_stream))):
+            pbar.set_description(f'diagnose_progress_{ii}', refresh=True)
             self.model.eval()
             output = self.model(region[None, ::].to(self.device))
             output = output.detach().squeeze().cpu().numpy()
@@ -153,7 +156,8 @@ def main():
     edge_weight = 1.0
     edge_weight = torch.tensor(edge_weight).to(device)
     manager = ModelManager(output_dir)
-    for epoch in tqdm(range(num_epochs)):
+    for epoch in (pbar := tqdm(range(num_epochs))):
+        pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
         # zero out epoch based performance variables
         all_acc = {key: 0 for key in phases}
         # keep this on GPU for greatly improved performance
