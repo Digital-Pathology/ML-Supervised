@@ -76,7 +76,7 @@ class MyModel:
             pbar.set_description(f'training_progress_{ii}', refresh=True)
             self.file.write("########################   PUSHING TO DEVICE!  ########################")
             print("########################   PUSHING TO DEVICE!  ########################")
-            X = X.to(self.device)
+            X, label = X.to(self.device), label.to(self.device)
             label = torch.tensor(
                 list(map(lambda x: int(x), label))).to(self.device)
             with torch.set_grad_enabled(True):
@@ -115,7 +115,7 @@ class MyModel:
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
             self.file.write("########################   PUSHING TO DEVICE!  ########################")
             print("########################   PUSHING TO DEVICE!  ########################")
-            X = X.to(self.device)
+            X, label = X.to(self.device), label.to(self.device)
             label = torch.tensor(
                 list(map(lambda x: int(x), label))).to(self.device)
             with torch.no_grad():
@@ -149,6 +149,7 @@ class MyModel:
         votes = {0: 0, 1: 0, 2: 0}
         key = {0: 'MILD', 1: 'Moderate', 2: 'Severe'}
         for ii, region in (pbar := enumerate(tqdm(region_stream))):
+            region = region.to(self.device)
             pbar.set_description(f'diagnose_progress_{ii}', refresh=True)
             self.model.eval()
             output = self.model(region[None, ::].to(self.device))
@@ -163,7 +164,7 @@ def main(file):
     output_dir = SM_OUTPUT_DIR
     # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
     filtration = None
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     file.write(device)
     model = DenseNet(growth_rate=growth_rate, block_config=block_config,
                      num_init_features=num_init_features,
@@ -178,11 +179,18 @@ def main(file):
     dataLoader['train'] = DataLoader(dataset['train'], batch_size=batch_size,
                                      shuffle=True, num_workers=num_workers, pin_memory=True)
     file.write(f"train dataset size:\t{len(dataset['train'])}")
+    file.write(f'train dataset filepaths: {dataset["train"]._region_counts}')
+    print(f"train dataset size:\t{len(dataset['train'])}")
+    print(f'train dataset filepaths: {dataset["train"]._region_counts}')
     dataset['val'] = Dataset(
         data_dir=test_dir, labels=test_labels, filtration=filtration)
+    
     dataLoader['val'] = DataLoader(dataset['val'], batch_size=batch_size,
                                    shuffle=True, num_workers=num_workers, pin_memory=True)
     file.write(f"val dataset size:\t{len(dataset['val'])}")
+    file.write(f'val dataset filepaths: {dataset["train"]._region_counts}')
+    print(f"val dataset size:\t{len(dataset['val'])}")
+    print(f'val dataset filepaths: {dataset["val"]._region_counts}')
     criterion = nn.CrossEntropyLoss()
 
     best_loss_on_test = np.Infinity
@@ -192,7 +200,6 @@ def main(file):
     file.write("########################   INITIALIZATION COMPLETE!  ########################")
     print("########################   INITIALIZATION COMPLETE!  ########################")
     for epoch in (pbar := tqdm(range(num_epochs))):
-
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
         # zero out epoch based performance variables
         all_acc = {key: 0 for key in phases}
