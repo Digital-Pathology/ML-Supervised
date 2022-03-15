@@ -69,7 +69,7 @@ class MyModel:
 
     def train_model(self, optimizer: torch.optim.Optimizer, data_loader: DataLoader):
         self.model.train()
-        for ii, (X, label) in (pbar := tqdm(enumerate(data_loader))):
+        for ii, (X, label) in (pbar := enumerate(tqdm(data_loader))):
             pbar.set_description(f'training_progress_{ii}', refresh=True)
             X = X.to(self.device)
             label = torch.tensor(
@@ -90,7 +90,7 @@ class MyModel:
 
     def eval(self, data_loader: DataLoader):
         self.model.eval()
-        for ii, (X, label) in (pbar := tqdm(enumerate(data_loader))):
+        for ii, (X, label) in (pbar := enumerate(tqdm(data_loader))):
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
             X = X.to(self.device)
             label = torch.tensor(
@@ -115,7 +115,7 @@ class MyModel:
     def diagnose(self, region_stream: DataLoader):
         votes = {0: 0, 1: 0, 2: 0}
         key = {0: 'MILD', 1: 'Moderate', 2: 'Severe'}
-        for ii, region in (pbar := tqdm(enumerate(region_stream))):
+        for ii, region in (pbar := enumerate(tqdm(region_stream))):
             pbar.set_description(f'diagnose_progress_{ii}', refresh=True)
             self.model.eval()
             output = self.model(region[None, ::].to(self.device))
