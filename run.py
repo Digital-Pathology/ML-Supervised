@@ -53,7 +53,7 @@ train_labels = f'{os.getcwd()}/{args["train_labels"]}'
 test_labels = f'{os.getcwd()}/{args["test_labels"]}'
 num_workers = args['num_workers']
 phases = ["train", 'val']  # how many phases did we create databases for?
-# when should we do valiation? note that validation is *very* time consuming, so as opposed to doing for both training and validation, we do it only for vlaidation at the end of the epoch
+# when should we do valiation? note that validation is *very* time consuming, so as opposed to doing for both training and validation, we do it only for validation at the end of the epoch
 validation_phases = ['val']
 # additionally, using simply [], will skip validation entirely, drastically speeding things up
 
@@ -66,48 +66,65 @@ class MyModel:
         self.all_acc = all_acc
         self.all_loss = all_loss
         self.cmatrix = cmatrix
-
+    def init_log(self, file):
+        self.file = file
     def train_model(self, optimizer: torch.optim.Optimizer, data_loader: DataLoader):
+        self.file.write("########################   SETTING TO TRAIN MODE!  ########################")
         self.model.train()
         for ii, (X, label) in (pbar := enumerate(tqdm(data_loader))):
             pbar.set_description(f'training_progress_{ii}', refresh=True)
+            self.file.write("########################   PUSHING TO DEVICE!  ########################")
             X = X.to(self.device)
             label = torch.tensor(
                 list(map(lambda x: int(x), label))).to(self.device)
             with torch.set_grad_enabled(True):
+                self.file.write("########################   GENERATING OUTPUT!  ########################")
                 prediction = self.model(
                     X.permute(0, 3, 1, 2).float())  # [N, Nclass]
+                self.file.write("########################   COMPUTING LOSS!  ########################")
                 loss = self.loss_fn(prediction, label)
+                self.file.write("########################   ZERO GRAD!  ########################")
                 optimizer.zero_grad()
+                self.file.write("########################   BACKPROPOGATION!  ########################")
                 loss.backward()
+                self.file.write("########################   OPTIMIZATION!  ########################")
                 optimizer.step()
 
+                self.file.write("########################   TRAINING LOSS STORAGE!  ########################")
                 self.all_loss['train'] = torch.cat(
                     (self.all_loss['train'], loss.detach().view(1, -1)))
+        self.file.write("########################   TRAINING ACCURACY!  ########################")
         self.all_acc['train'] = (
             self.cmatrix['train'] / self.cmatrix['train'].sum()).trace()
         self.all_loss['train'] = self.all_loss['train'].cpu().numpy().mean()
 
     def eval(self, data_loader: DataLoader):
+        self.file.write("########################   SETTING TO EVALUATION MODE!  ########################")
         self.model.eval()
         for ii, (X, label) in (pbar := enumerate(tqdm(data_loader))):
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
+            self.file.write("########################   PUSHING TO DEVICE!  ########################")
             X = X.to(self.device)
             label = torch.tensor(
                 list(map(lambda x: int(x), label))).to(self.device)
             with torch.no_grad():
+                self.file.write("########################   GENERATING OUTPUT!  ########################")
                 prediction = self.model(
                     X.permute(0, 3, 1, 2).float())  # [N, Nclass]
+                self.file.write("########################   COMPUTING LOSS!  ########################")
                 loss = self.loss_fn(prediction, label)
                 p = prediction.detach().cpu().numpy()
                 cpredflat = np.argmax(p, axis=1).flatten()
                 yflat = label.cpu().numpy().flatten()
 
+                self.file.write("########################   EVALUATION LOSS STORAGE!  ########################")
                 self.all_loss['val'] = torch.cat(
                     (self.all_loss['val'], loss.detach().view(1, -1)))
+                self.file.write("########################   CONFUSION MATRIX GENERATION!  ########################")
                 self.cmatrix['val'] = self.cmatrix['val'] + \
                     confusion_matrix(yflat, cpredflat,
                                      labels=range(num_classes))
+        self.file.write("########################   EVALUATION ACCURACY!  ########################")
         self.all_acc['val'] = (self.cmatrix['val'] /
                                self.cmatrix['val'].sum()).trace()
         self.all_loss['val'] = self.all_loss['val'].cpu().numpy().mean()
@@ -124,14 +141,14 @@ class MyModel:
         return key[max(votes, key=votes.get)]  # key with max value
 
 
-def main():
+def main(file):
     train_dir = SM_CHANNEL_TRAIN
     test_dir = SM_CHANNEL_TEST
     output_dir = SM_OUTPUT_DIR
     # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
     filtration = None
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(device)
+    file.write(device)
     model = DenseNet(growth_rate=growth_rate, block_config=block_config,
                      num_init_features=num_init_features,
                      bn_size=bn_size,
@@ -144,19 +161,21 @@ def main():
         data_dir=train_dir, labels=train_labels, filtration=filtration)
     dataLoader['train'] = DataLoader(dataset['train'], batch_size=batch_size,
                                      shuffle=True, num_workers=num_workers, pin_memory=True)
-    print(f"train dataset size:\t{len(dataset['train'])}")
+    file.write(f"train dataset size:\t{len(dataset['train'])}")
     dataset['val'] = Dataset(
         data_dir=test_dir, labels=test_labels, filtration=filtration)
     dataLoader['val'] = DataLoader(dataset['val'], batch_size=batch_size,
                                    shuffle=True, num_workers=num_workers, pin_memory=True)
-    print(f"val dataset size:\t{len(dataset['val'])}")
+    file.write(f"val dataset size:\t{len(dataset['val'])}")
     criterion = nn.CrossEntropyLoss()
 
     best_loss_on_test = np.Infinity
     edge_weight = 1.0
     edge_weight = torch.tensor(edge_weight).to(device)
     manager = ModelManager(output_dir)
+    file.write("########################   INITIALIZATION COMPLETE!  ########################")
     for epoch in (pbar := tqdm(range(num_epochs))):
+
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
         # zero out epoch based performance variables
         all_acc = {key: 0 for key in phases}
@@ -166,7 +185,11 @@ def main():
 
         my_model = MyModel(model, criterion, device,
                            all_acc, all_loss, cmatrix)
+        my_model.init_log(file)
+        file.write("########################   STARTING TRAINING!  ########################")
+
         my_model.train_model(optim, dataLoader['train'])
+        file.write("########################   STARTING EVALUATION!  ########################")
         my_model.eval(dataLoader['val'])
 
         all_acc, all_loss, cmatrix = my_model.all_acc, my_model.all_loss, my_model.cmatrix
@@ -174,8 +197,9 @@ def main():
         # if current loss is the best we've seen, save model state with all variables
         # necessary for recreation
         if all_loss["val"] < best_loss_on_test:
+            file.write("########################   SAVING BEST MODEL!  ########################")
             best_loss_on_test = all_loss["val"]
-            print("  **")
+            f.write("  **")
             state = {'epoch': epoch + 1,
                      'model_dict': model.state_dict(),
                      'optim_dict': optim.state_dict(),
@@ -192,19 +216,24 @@ def main():
             manager.save_model(model_name=f"{dataname}_densenet_best_model",
                                model=model, model_info=state, overwrite_model=True)
         else:
-            print("")
-    diagnose_example(model, manager, dataset, device)
+            file.write("")
+    
+    diagnose_example(model, manager, dataset, device, file)
 
 
-def diagnose_example(model, manager, dataset, device):
+def diagnose_example(model, manager, dataset, device, file):
+    file.write("########################   DIAGNOSING EXAMPLE!  ########################")
     img, label, _ = dataset["val"][2]
+    file.write("########################   LOADING MODEL!  ########################")
     manager.load_model(f"{dataname}_densenet_best_model")
+    file.write("########################   LOADING STATE DICT!  ########################")
     model.load_state_dict(manager.get_model_info(
         f"{dataname}_densenet_best_model")['model_dict'])
+    file.write("########################   GENERATING OUTPUT!  ########################")
     output = model(img[None, ::].to(device))
     output = output.detach().squeeze().cpu().numpy()
-    print(f"True class:{label}")
-    print(f"Predicted class:{np.argmax(output)}")
+    file.write(f"True class: {label}")
+    file.write(f"Predicted class: {np.argmax(output)}")
 
 
 # def train_model(model, optimizer, loss_fn, data_loader, device, all_acc, all_loss, cmatrix):
@@ -245,4 +274,5 @@ def diagnose_example(model, manager, dataset, device):
 
 
 if __name__ == "__main__":
-    main()
+    with open("/opt/ml/output/supervised_logfile.txt", 'w+') as f:
+        main(f)
