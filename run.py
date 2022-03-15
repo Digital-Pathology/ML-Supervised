@@ -181,7 +181,7 @@ def main(file):
     file.write(f"train dataset size:\t{len(dataset['train'])}")
     file.write(f'train dataset filepaths: {dataset["train"]._region_counts}')
     print(f"train dataset size:\t{len(dataset['train'])}")
-    print(f'train dataset filepaths: {dataset["train"]._region_counts}')
+    print(f'train dataset region counts: {dataset["train"]._region_counts}')
     dataset['val'] = Dataset(
         data_dir=test_dir, labels=test_labels, filtration=filtration)
     
@@ -190,7 +190,7 @@ def main(file):
     file.write(f"val dataset size:\t{len(dataset['val'])}")
     file.write(f'val dataset filepaths: {dataset["train"]._region_counts}')
     print(f"val dataset size:\t{len(dataset['val'])}")
-    print(f'val dataset filepaths: {dataset["val"]._region_counts}')
+    print(f'val dataset region counts: {dataset["val"]._region_counts}')
     criterion = nn.CrossEntropyLoss()
 
     best_loss_on_test = np.Infinity
