@@ -188,7 +188,7 @@ def main(file):
     dataLoader['val'] = DataLoader(dataset['val'], batch_size=batch_size,
                                    shuffle=True, num_workers=num_workers, pin_memory=True)
     file.write(f"val dataset size:\t{len(dataset['val'])}")
-    file.write(f'val dataset filepaths: {dataset["train"]._region_counts}')
+    file.write(f'val dataset filepaths: {dataset["val"]._region_counts}')
     print(f"val dataset size:\t{len(dataset['val'])}")
     print(f'val dataset region counts: {dataset["val"]._region_counts}')
     criterion = nn.CrossEntropyLoss()
