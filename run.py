@@ -165,7 +165,8 @@ def main(file):
     # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
     filtration = None
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    file.write(device)
+    print(str(device))
+    file.write(str(device))
     model = DenseNet(growth_rate=growth_rate, block_config=block_config,
                      num_init_features=num_init_features,
                      bn_size=bn_size,
