@@ -37,12 +37,12 @@ parser.add_argument('--classes',
 
 args = vars(parser.parse_args())
 dataname = "digpath_supervised"
-# SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
-# SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
-# SM_OUTPUT_DIR = os.getenv('SM_OUTPUT_DIR')
-SM_CHANNEL_TRAIN = "/workspaces/dev-container/ML-Supervised/input/train"
-SM_CHANNEL_TEST = "/workspaces/dev-container/ML-Supervised/input/test"
-SM_OUTPUT_DIR = "/workspaces/dev-container/ML-Supervised/output"
+SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
+SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
+SM_OUTPUT_DIR = os.getenv('SM_OUTPUT_DIR')
+# SM_CHANNEL_TRAIN = "/workspaces/dev-container/ML-Supervised/input/train"
+# SM_CHANNEL_TEST = "/workspaces/dev-container/ML-Supervised/input/test"
+# SM_OUTPUT_DIR = "/workspaces/dev-container/ML-Supervised/output"
 # number of classes in the data mask that we'll aim to predict
 num_classes = args['num_classes']
 classes = args['classes']
