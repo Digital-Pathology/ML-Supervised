@@ -221,7 +221,7 @@ def main():
     dataset = {}
     dataLoader = {}
     labels = {label: idx for idx, label in enumerate(classes)}
-    label_encoder = lambda x: labels[x]
+    label_encoder = lambda x: labels[os.path.basename(os.path.dirname(x))]
     dataset['train'] = Dataset(data_dir=train_dir,
                                labels=LabelManager(
                                    train_dir,
