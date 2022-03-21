@@ -1,19 +1,21 @@
+import argparse
+import os
 from types import new_class
 from unicodedata import decimal
-from dataset import Dataset
-# from filtration import FilterManager, FilterBlackAndWhite, FilterHSV
-from model_manager import ModelManager
-from tqdm import tqdm
+
 import numpy as np
 import torch
-import os
-import argparse
-from torch import nn
-from torch.utils.data import DataLoader
-from torch.optim import Adam
-from torchvision.models import DenseNet
+from dataset import Dataset, LabelManager
+from filtration import (FilterBlackAndWhite, FilterFocusMeasure, FilterHSV,
+                        FilterManager)
+from model_manager import ModelManager
 # from models import UNet
 from sklearn.metrics import confusion_matrix
+from torch import nn
+from torch.optim import Adam
+from torch.utils.data import DataLoader
+from torchvision.models import DenseNet
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--num-epochs', type=int, default=1)
@@ -29,18 +31,21 @@ parser.add_argument('--patch-size', type=int, default=224)
 parser.add_argument('--train-labels', type=str, default='train_labels.csv')
 parser.add_argument('--test-labels', type=str, default='test_labels.csv')
 parser.add_argument('--num-workers', type=int, default=0)
+parser.add_argument('--classes',
+                    type=tuple,
+                    default=('Mild', 'Moderate', 'Severe'))
 
 args = vars(parser.parse_args())
-
 dataname = "digpath_supervised"
-SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
-SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
-SM_OUTPUT_DIR = os.getenv('SM_OUTPUT_DIR')
-# SM_CHANNEL_TRAIN = "/workspaces/dev-container/ML-Supervised/input/train"
-# SM_CHANNEL_TEST = "/workspaces/dev-container/ML-Supervised/input/test"
-# SM_OUTPUT_DIR = "/workspaces/dev-container/ML-Supervised/output"
+# SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
+# SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
+# SM_OUTPUT_DIR = os.getenv('SM_OUTPUT_DIR')
+SM_CHANNEL_TRAIN = "/workspaces/dev-container/ML-Supervised/input/train"
+SM_CHANNEL_TEST = "/workspaces/dev-container/ML-Supervised/input/test"
+SM_OUTPUT_DIR = "/workspaces/dev-container/ML-Supervised/output"
 # number of classes in the data mask that we'll aim to predict
 num_classes = args['num_classes']
+classes = args['classes']
 in_channels = args['in_channels']  # input channel of the data, RGB = 3
 growth_rate = args['growth_rate']
 block_config = args['block_config']
@@ -51,10 +56,7 @@ batch_size = args['batch_size']
 # currently, this needs to be 224 due to densenet architecture
 patch_size = args['patch_size']
 num_epochs = args['num_epochs']
-train_labels = f'{os.getcwd()}/{args["train_labels"]}'
-test_labels = f'{os.getcwd()}/{args["test_labels"]}'
-# train_labels = "/workspaces/dev-container/ML-Supervised/train_labels.csv"
-# test_labels = "/workspaces/dev-container/ML-Supervised/test_labels.csv"
+
 num_workers = args['num_workers']
 phases = ["train", 'val']  # how many phases did we create databases for?
 # when should we do valiation? note that validation is *very* time consuming, so as opposed to doing for both training and validation, we do it only for validation at the end of the epoch
@@ -73,104 +75,75 @@ class MyModel:
         self.all_loss = all_loss
         self.cmatrix = cmatrix
 
-    def init_log(self, file):
-        self.file = file
-
     def train_model(self, optimizer: torch.optim.Optimizer,
                     data_loader: DataLoader):
         """Train Model"""
-        self.file.write(
-            "########################   SETTING TO TRAIN MODE!  ########################\n"
-        )
         print(
             "########################   SETTING TO TRAIN MODE!  ########################\n"
         )
         self.model.train()
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
-            # if ii > 1:
-            #     break
+            if ii > 1:
+                break
             pbar.set_description(f'training_progress_{ii}', refresh=True)
-            self.file.write(
-                "########################   PUSHING TO DEVICE!  ########################\n"
-            )
             print(
                 "########################   PUSHING TO DEVICE!  ########################\n"
             )
             X = X.to(self.device)
-            label = torch.tensor(list(map(lambda x: int(x),
-                                          label))).to(self.device)
+            label = label.type('torch.LongTensor').to(self.device)
             with torch.set_grad_enabled(True):
-                self.file.write(
-                    "########################   GENERATING OUTPUT!  ########################\n"
-                )
+
                 print(
                     "########################   GENERATING OUTPUT!  ########################\n"
                 )
                 prediction = self.model(X.permute(0, 3, 1,
                                                   2).float())  # [N, Nclass]
-                self.file.write(
-                    "########################   COMPUTING LOSS!  ########################\n"
-                )
+
                 print(
                     "########################   COMPUTING LOSS!  ########################\n"
                 )
                 loss = self.loss_fn(prediction, label)
-                self.file.write(
-                    "########################   ZERO GRAD!  ########################\n"
-                )
+
                 print(
                     "########################   ZERO GRAD!  ########################\n"
                 )
                 optimizer.zero_grad()
-                self.file.write(
-                    "########################   BACKPROPOGATION!  ########################\n"
-                )
+
                 print(
                     "########################   BACKPROPOGATION!  ########################\n"
                 )
                 loss.backward()
-                self.file.write(
-                    "########################   OPTIMIZATION!  ########################\n"
-                )
+
                 print(
                     "########################   OPTIMIZATION!  ########################\n"
                 )
                 optimizer.step()
 
-                self.file.write(
-                    "########################   TRAINING LOSS STORAGE!  ########################\n"
-                )
                 print(
                     "########################   TRAINING LOSS STORAGE!  ########################\n"
                 )
                 self.all_loss['train'] = torch.cat(
                     (self.all_loss['train'], loss.detach().view(1, -1)))
-        self.file.write(
-            "########################   TRAINING ACCURACY!  ########################\n"
-        )
+
         print(
             "########################   TRAINING ACCURACY!  ########################\n"
         )
         self.all_acc['train'] = (self.cmatrix['train'] /
-                                 (self.cmatrix['train'].sum()).trace() + 1e-6)
+                                 (self.cmatrix['train'].sum() + 1e-6)).trace()
         self.all_loss['train'] = self.all_loss['train'].cpu().numpy().mean()
 
     def eval(self, data_loader: DataLoader):
         """Eval"""
-        self.file.write(
-            "########################   SETTING TO EVALUATION MODE!  ########################\n"
-        )
+
         print(
             "########################   SETTING TO EVALUATION MODE!  ########################\n"
         )
         self.model.eval()
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
-            # if ii > 1:
-            #     break
+            if ii > 1:
+                break
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
-            self.file.write(
-                "########################   PUSHING TO DEVICE!  ########################\n"
-            )
+
             print(
                 "########################   PUSHING TO DEVICE!  ########################\n"
             )
@@ -178,17 +151,13 @@ class MyModel:
             label = torch.tensor(list(map(lambda x: int(x),
                                           label))).to(self.device)
             with torch.no_grad():
-                self.file.write(
-                    "########################   GENERATING OUTPUT!  ########################\n"
-                )
+
                 print(
                     "########################   GENERATING OUTPUT!  ########################\n"
                 )
                 prediction = self.model(X.permute(0, 3, 1,
                                                   2).float())  # [N, Nclass]
-                self.file.write(
-                    "########################   COMPUTING LOSS!  ########################\n"
-                )
+
                 print(
                     "########################   COMPUTING LOSS!  ########################\n"
                 )
@@ -197,26 +166,19 @@ class MyModel:
                 cpredflat = np.argmax(p, axis=1).flatten()
                 yflat = label.cpu().numpy().flatten()
 
-                self.file.write(
-                    "########################   EVALUATION LOSS STORAGE!  ########################\n"
-                )
                 print(
                     "########################   EVALUATION LOSS STORAGE!  ########################\n"
                 )
                 self.all_loss['val'] = torch.cat(
                     (self.all_loss['val'], loss.detach().view(1, -1)))
-                self.file.write(
-                    "########################   CONFUSION MATRIX GENERATION!  ########################\n"
-                )
+
                 print(
                     "########################   CONFUSION MATRIX GENERATION!  ########################\n"
                 )
                 self.cmatrix['val'] = self.cmatrix['val'] + \
                     confusion_matrix(yflat, cpredflat,
                                      labels=range(num_classes))
-        self.file.write(
-            "########################   EVALUATION ACCURACY!  ########################\n"
-        )
+
         print(
             "########################   EVALUATION ACCURACY!  ########################\n"
         )
@@ -238,15 +200,17 @@ class MyModel:
         return key[max(votes, key=votes.get)]  # key with max value
 
 
-def main(file):
+def main():
     train_dir = SM_CHANNEL_TRAIN
     test_dir = SM_CHANNEL_TEST
     output_dir = SM_OUTPUT_DIR
-    # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
-    filtration = None
+    # filtration = None
+    filtration = FilterManager(
+        filters=[FilterBlackAndWhite(),
+                 FilterHSV(),
+                 FilterFocusMeasure()])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(str(device))
-    file.write(str(device) + "\n")
     model = DenseNet(growth_rate=growth_rate,
                      block_config=block_config,
                      num_init_features=num_init_features,
@@ -256,20 +220,23 @@ def main(file):
     optim = Adam(model.parameters())
     dataset = {}
     dataLoader = {}
+    labels = {label: idx for idx, label in enumerate(classes)}
+    label_encoder = lambda x: labels[x]
     dataset['train'] = Dataset(data_dir=train_dir,
-                               labels=train_labels,
+                               labels=LabelManager(
+                                   train_dir,
+                                   label_postprocessor=label_encoder),
                                filtration=filtration)
     dataLoader['train'] = DataLoader(dataset['train'],
                                      batch_size=batch_size,
                                      shuffle=True,
                                      num_workers=num_workers,
                                      pin_memory=True)
-    file.write(f"train dataset size:\t{len(dataset['train'])}\n")
-    file.write(f'train dataset filepaths: {dataset["train"]._region_counts}\n')
     print(f"train dataset size:\t{len(dataset['train'])}")
     print(f'train dataset region counts: {dataset["train"]._region_counts}')
     dataset['val'] = Dataset(data_dir=test_dir,
-                             labels=test_labels,
+                             labels=LabelManager(
+                                 test_dir, label_postprocessor=label_encoder),
                              filtration=filtration)
 
     dataLoader['val'] = DataLoader(dataset['val'],
@@ -277,8 +244,6 @@ def main(file):
                                    shuffle=True,
                                    num_workers=num_workers,
                                    pin_memory=True)
-    file.write(f"val dataset size:\t{len(dataset['val'])}\n")
-    file.write(f'val dataset filepaths: {dataset["val"]._region_counts}\n')
     print(f"val dataset size:\t{len(dataset['val'])}")
     print(f'val dataset region counts: {dataset["val"]._region_counts}')
     criterion = nn.CrossEntropyLoss()
@@ -287,9 +252,7 @@ def main(file):
     edge_weight = 1.0
     edge_weight = torch.tensor(edge_weight).to(device)
     manager = ModelManager(output_dir)
-    file.write(
-        "########################   INITIALIZATION COMPLETE!  ########################\n"
-    )
+
     print(
         "########################   INITIALIZATION COMPLETE!  ########################\n"
     )
@@ -298,23 +261,21 @@ def main(file):
         # zero out epoch based performance variables
         all_acc = {key: 0 for key in phases}
         # keep this on GPU for greatly improved performance
-        all_loss = {key: torch.zeros(0).to(device) for key in phases}
+        all_loss = {
+            key: torch.zeros(0, dtype=torch.float64).to(device)
+            for key in phases
+        }
         cmatrix = {key: np.zeros((num_classes, num_classes)) for key in phases}
 
         my_model = MyModel(model, criterion, device, all_acc, all_loss,
                            cmatrix)
-        my_model.init_log(file)
-        file.write(
-            "########################   STARTING TRAINING!  ########################\n"
-        )
+
         print(
             "########################   STARTING TRAINING!  ########################\n"
         )
 
         my_model.train_model(optim, dataLoader['train'])
-        file.write(
-            "########################   STARTING EVALUATION!  ########################\n"
-        )
+
         print(
             "########################   STARTING EVALUATION!  ########################\n"
         )
@@ -325,39 +286,14 @@ def main(file):
         # if current loss is the best we've seen, save model state with all variables
         # necessary for recreation
         if all_loss["val"] < best_loss_on_test:
-            file.write(
-                "########################   SAVING BEST MODEL!  ########################\n"
-            )
+
             print(
                 "########################   SAVING BEST MODEL!  ########################\n"
             )
             best_loss_on_test = all_loss["val"]
 
-            # state = {
-            #     'epoch': epoch + 1,
-            #     'model_dict': {
-            #         key: (val.cpu().data.numpy() if isinstance(
-            #             val, torch.Tensor) else val)
-            #         for key, val in model.state_dict().items()
-            #     },
-            #     'optim_dict': {
-            #         key: (val.cpu().data.numpy() if isinstance(
-            #             val, torch.Tensor) else val)
-            #         for key, val in optim.state_dict().items()
-            #     },
-            #     'best_loss_on_test': all_loss,
-            #     'in_channels': in_channels,
-            #     'growth_rate': growth_rate,
-            #     'block_config': block_config,
-            #     'num_init_features': num_init_features,
-            #     'bn_size': bn_size,
-            #     'drop_rate': drop_rate,
-            #     'num_classes': num_classes
-            # }
             state = {
                 'epoch': epoch + 1,
-                'model_dict': model.state_dict(),
-                'optim_dict': optim.state_dict(),
                 'best_loss_on_test': all_loss,
                 'in_channels': in_channels,
                 'growth_rate': growth_rate,
@@ -367,99 +303,47 @@ def main(file):
                 'drop_rate': drop_rate,
                 'num_classes': num_classes
             }
-            # torch.save(state, f"{dataname}_densenet_best_model.pth")
-            # manager.save_model(model_name=f"{dataname}_densenet_best_model",
-            #                    model=model,
-            #                    model_info=state,
-            #                    overwrite_model=True)
-            torch.save(state, f"output/{dataname}_densenet_best_model.pth")
-        else:
-            file.write("")
 
-    diagnose_example(model, manager, dataset, device, file)
+            manager.save_model(model_name=f"{dataname}_densenet_best_model",
+                               model=model,
+                               model_info=state,
+                               overwrite_model=True)
+            # torch.save(state, f"output/{dataname}_densenet_best_model.pth")
+
+    diagnose_example(model, manager, dataset, device, labels)
 
 
-def diagnose_example(model, manager, dataset, device, file):
+def diagnose_example(model, manager, dataset, device, labels):
     """Diagnose example"""
-    file.write(
-        "########################   DIAGNOSING EXAMPLE!  ########################\n"
-    )
+
     print(
         "########################   DIAGNOSING EXAMPLE!  ########################\n"
     )
     img, label = dataset["val"][2]
-    file.write(
-        "########################   LOADING MODEL!  ########################\n"
-    )
+
     print(
         "########################   LOADING MODEL!  ########################\n"
     )
-    # manager.load_model(f"{dataname}_densenet_best_model")
-    checkpoint = torch.load(f"output/{dataname}_densenet_best_model.pth")
-    file.write(
-        "########################   LOADING STATE DICT!  ########################\n"
-    )
+    checkpoint = manager.load_model(f"{dataname}_densenet_best_model")
+    # checkpoint = torch.load(f"output/{dataname}_densenet_best_model.pth")
+
     print(
         "########################   LOADING STATE DICT!  ########################\n"
     )
-    # model.load_state_dict(
-    #     manager.get_model_info(f"{dataname}_densenet_best_model")
-    #     ['model_dict'])
-    model.load_state_dict(checkpoint["model_dict"])
-    file.write(
-        "########################   GENERATING OUTPUT!  ########################\n"
-    )
+    # model.load_state_dict(checkpoint.state_dict()['model_dict'])
+    # model.load_state_dict(checkpoint["model_dict"])
+
     print(
         "########################   GENERATING OUTPUT!  ########################\n"
     )
     output = model(torch.Tensor(img[None, ::]).permute(0, 3, 1,
                                                        2).float()).to(device)
     output = output.detach().squeeze().cpu().numpy()
-    file.write(f"True class: {label}\n")
-    print(f"True class: {label}\n")
-    file.write(f"Predicted class: {np.argmax(output)}\n")
-    print(f"Predicted class: {np.argmax(output)}")
+    label_decoder = lambda x: list(labels.keys())[list(labels.values()).index(
+        x)]
+    print(f"True class: {label_decoder(label)}\n")
+    print(f"Predicted class: {label_decoder(np.argmax(output))}")
 
-
-# def train_model(model, optimizer, loss_fn, data_loader, device, all_acc, all_loss, cmatrix):
-#     model.train()
-#     for ii, (X, label) in enumerate(data_loader):
-#         X = X.to(device)
-#         label = torch.tensor(list(map(lambda x: int(x), label))).to(device)
-#         with torch.set_grad_enabled(True):
-#             prediction = model(X.permute(0, 3, 1, 2).float())  # [N, Nclass]
-#             loss = loss_fn(prediction, label)
-#             optimizer.zero_grad()
-#             loss.backward()
-#             optimizer.step()
-
-#             all_loss['train'] = torch.cat((all_loss['train'], loss.detach().view(1, -1)))
-#     all_acc['train'] = (cmatrix['train'] / cmatrix['train'].sum()).trace()
-#     all_loss['train'] = all_loss['train'].cpu().numpy().mean()
-#     return all_acc, all_loss, cmatrix
-
-# def test_model(model, loss_fn, data_loader, device, all_acc, all_loss, cmatrix):
-#     model.eval()
-#     for ii, (X, label) in enumerate(data_loader):
-#         X = X.to(device)
-#         label = torch.tensor(list(map(lambda x: int(x), label))).to(device)
-#         with torch.no_grad():
-#             prediction = model(X.permute(0, 3, 1, 2).float())  # [N, Nclass]
-#             loss = loss_fn(prediction, label)
-#             p = prediction.detach().cpu().numpy()
-#             cpredflat = np.argmax(p, axis=1).flatten()
-#             yflat = label.cpu().numpy().flatten()
-
-#             all_loss['val'] = torch.cat((all_loss['val'], loss.detach().view(1, -1)))
-#             cmatrix['val'] = cmatrix['val'] + confusion_matrix(yflat, cpredflat, labels=range(num_classes))
-#     all_acc['val'] = (cmatrix['val'] / cmatrix['val'].sum()).trace()
-#     all_loss['val'] = all_loss['val'].cpu().numpy().mean()
-#     return all_acc, all_loss, cmatrix
 
 if __name__ == "__main__":
-    # with open("/opt/ml/model/supervised_logfile.txt", 'w+') as f:
-    with open(
-            "/workspaces/dev-container/ML-Supervised/output/supervised_logfile.txt",
-            "w+",
-            encoding="utf8") as f:
-        main(f)
+    main()
