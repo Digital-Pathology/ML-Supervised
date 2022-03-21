@@ -83,8 +83,8 @@ class MyModel:
         )
         self.model.train()
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
-            if ii > 1:
-                break
+            # if ii > 1:
+            #     break
             pbar.set_description(f'training_progress_{ii}', refresh=True)
             print(
                 "########################   PUSHING TO DEVICE!  ########################\n"
@@ -140,8 +140,8 @@ class MyModel:
         )
         self.model.eval()
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
-            if ii > 1:
-                break
+            # if ii > 1:
+            #     break
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
 
             print(
