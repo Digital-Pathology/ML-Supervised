@@ -1,7 +1,5 @@
 import argparse
 import os
-from types import new_class
-from unicodedata import decimal
 
 import numpy as np
 import torch
@@ -65,7 +63,9 @@ validation_phases = ['val']
 
 
 class MyModel:
-
+    """
+    Model
+    """
     def __init__(self, model: nn.Module, loss_fn: nn.Module, device: str,
                  all_acc: dict, all_loss: dict, cmatrix: dict):
         self.model = model
@@ -201,6 +201,7 @@ class MyModel:
 
 
 def main():
+    """Main"""
     train_dir = SM_CHANNEL_TRAIN
     test_dir = SM_CHANNEL_TEST
     output_dir = SM_OUTPUT_DIR
@@ -221,7 +222,7 @@ def main():
     dataset = {}
     dataLoader = {}
     labels = {label: idx for idx, label in enumerate(classes)}
-    label_encoder = lambda x: labels[os.path.basename(x)]
+    def label_encoder(x): return labels[os.path.basename(x)]
     dataset['train'] = Dataset(data_dir=train_dir,
                                labels=LabelManager(
                                    train_dir,
@@ -339,7 +340,8 @@ def diagnose_example(model, manager, dataset, device, labels):
     output = model(torch.Tensor(img[None, ::]).permute(0, 3, 1,
                                                        2).float()).to(device)
     output = output.detach().squeeze().cpu().numpy()
-    label_decoder = lambda x: list(labels.keys())[list(labels.values()).index(
+
+    def label_decoder(x): return list(labels.keys())[list(labels.values()).index(
         x)]
     print(f"True class: {label_decoder(label)}\n")
     print(f"Predicted class: {label_decoder(np.argmax(output))}")
