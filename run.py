@@ -37,7 +37,7 @@ args = vars(parser.parse_args())
 dataname = "digpath_supervised"
 SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
 SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
-SM_OUTPUT_DIR = os.getenv('SM_OUTPUT_DIR')
+SM_MODEL_DIR = os.getenv('SM_MODEL_DIR')
 # SM_CHANNEL_TRAIN = "/workspaces/dev-container/ML-Supervised/input/train"
 # SM_CHANNEL_TEST = "/workspaces/dev-container/ML-Supervised/input/test"
 # SM_OUTPUT_DIR = "/workspaces/dev-container/ML-Supervised/output"
@@ -204,7 +204,7 @@ def main():
     """Main"""
     train_dir = SM_CHANNEL_TRAIN
     test_dir = SM_CHANNEL_TEST
-    output_dir = SM_OUTPUT_DIR
+    model_dir = SM_MODEL_DIR
     # filtration = None
     filtration = FilterManager(
         filters=[FilterBlackAndWhite(),
@@ -252,7 +252,7 @@ def main():
     best_loss_on_test = np.Infinity
     edge_weight = 1.0
     edge_weight = torch.tensor(edge_weight).to(device)
-    manager = ModelManager(output_dir)
+    manager = ModelManager(model_dir)
 
     print(
         "########################   INITIALIZATION COMPLETE!  ########################\n"
@@ -337,8 +337,8 @@ def diagnose_example(model, manager, dataset, device, labels):
     print(
         "########################   GENERATING OUTPUT!  ########################\n"
     )
-    output = model(torch.Tensor(img[None, ::]).permute(0, 3, 1,
-                                                       2).float()).to(device)
+    input = torch.Tensor(img[None, ::]).permute(0, 3, 1, 2).float().to(device)
+    output = model(input).to(device)
     output = output.detach().squeeze().cpu().numpy()
 
     def label_decoder(x): return list(labels.keys())[list(labels.values()).index(
