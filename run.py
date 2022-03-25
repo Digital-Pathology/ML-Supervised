@@ -205,11 +205,11 @@ def main():
     train_dir = SM_CHANNEL_TRAIN
     test_dir = SM_CHANNEL_TEST
     output_dir = SM_OUTPUT_DIR
-    # filtration = None
-    filtration = FilterManager(
-        filters=[FilterBlackAndWhite(),
-                 FilterHSV(),
-                 FilterFocusMeasure()])
+    filtration = None
+    # filtration = FilterManager(
+    #     filters=[FilterBlackAndWhite(),
+    #              FilterHSV(),
+    #              FilterFocusMeasure()])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(str(device))
     model = DenseNet(growth_rate=growth_rate,
