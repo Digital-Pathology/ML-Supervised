@@ -17,7 +17,7 @@ from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--num-epochs', type=int, default=1)
-parser.add_argument('--batch-size', type=int, default=64)
+parser.add_argument('--batch-size', type=int, default=128)
 parser.add_argument('--num-classes', type=int, default=3)
 parser.add_argument('--in-channels', type=int, default=3)
 parser.add_argument('--growth-rate', type=int, default=32)
@@ -205,11 +205,11 @@ def main():
     train_dir = SM_CHANNEL_TRAIN
     test_dir = SM_CHANNEL_TEST
     output_dir = SM_OUTPUT_DIR
-    filtration = None
-    # filtration = FilterManager(
-    #     filters=[FilterBlackAndWhite(),
-    #              FilterHSV(),
-    #              FilterFocusMeasure()])
+    # filtration = None
+    filtration = FilterManager(
+        filters=[FilterBlackAndWhite(),
+                 FilterHSV(),
+                 FilterFocusMeasure()])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(str(device))
     model = DenseNet(growth_rate=growth_rate,
@@ -337,8 +337,8 @@ def diagnose_example(model, manager, dataset, device, labels):
     print(
         "########################   GENERATING OUTPUT!  ########################\n"
     )
-    output = model(torch.Tensor(img[None, ::]).permute(0, 3, 1,
-                                                       2).float()).to(device)
+    input = torch.Tensor(img[None, ::]).permute(0, 3, 1, 2).float().to(device)
+    output = model(input).to(device)
     output = output.detach().squeeze().cpu().numpy()
 
     def label_decoder(x): return list(labels.keys())[list(labels.values()).index(
