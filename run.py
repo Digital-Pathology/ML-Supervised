@@ -162,8 +162,11 @@ def main(file):
     train_dir = SM_CHANNEL_TRAIN
     test_dir = SM_CHANNEL_TEST
     output_dir = SM_OUTPUT_DIR
-    # FilterManager(filters=[FilterBlackAndWhite(), FilterHSV()])
     filtration = None
+    # filtration = FilterManager(
+    #     filters=[FilterBlackAndWhite(),
+    #              FilterHSV(),
+    #              FilterFocusMeasure()])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(str(device))
     file.write(str(device))
@@ -266,43 +269,6 @@ def diagnose_example(model, manager, dataset, device, file):
     output = output.detach().squeeze().cpu().numpy()
     file.write(f"True class: {label}")
     file.write(f"Predicted class: {np.argmax(output)}")
-
-
-# def train_model(model, optimizer, loss_fn, data_loader, device, all_acc, all_loss, cmatrix):
-#     model.train()
-#     for ii, (X, label) in enumerate(data_loader):
-#         X = X.to(device)
-#         label = torch.tensor(list(map(lambda x: int(x), label))).to(device)
-#         with torch.set_grad_enabled(True):
-#             prediction = model(X.permute(0, 3, 1, 2).float())  # [N, Nclass]
-#             loss = loss_fn(prediction, label)
-#             optimizer.zero_grad()
-#             loss.backward()
-#             optimizer.step()
-
-#             all_loss['train'] = torch.cat((all_loss['train'], loss.detach().view(1, -1)))
-#     all_acc['train'] = (cmatrix['train'] / cmatrix['train'].sum()).trace()
-#     all_loss['train'] = all_loss['train'].cpu().numpy().mean()
-#     return all_acc, all_loss, cmatrix
-
-
-# def test_model(model, loss_fn, data_loader, device, all_acc, all_loss, cmatrix):
-#     model.eval()
-#     for ii, (X, label) in enumerate(data_loader):
-#         X = X.to(device)
-#         label = torch.tensor(list(map(lambda x: int(x), label))).to(device)
-#         with torch.no_grad():
-#             prediction = model(X.permute(0, 3, 1, 2).float())  # [N, Nclass]
-#             loss = loss_fn(prediction, label)
-#             p = prediction.detach().cpu().numpy()
-#             cpredflat = np.argmax(p, axis=1).flatten()
-#             yflat = label.cpu().numpy().flatten()
-
-#             all_loss['val'] = torch.cat((all_loss['val'], loss.detach().view(1, -1)))
-#             cmatrix['val'] = cmatrix['val'] + confusion_matrix(yflat, cpredflat, labels=range(num_classes))
-#     all_acc['val'] = (cmatrix['val'] / cmatrix['val'].sum()).trace()
-#     all_loss['val'] = all_loss['val'].cpu().numpy().mean()
-#     return all_acc, all_loss, cmatrix
 
 
 if __name__ == "__main__":
