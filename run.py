@@ -78,110 +78,48 @@ class MyModel:
     def train_model(self, optimizer: torch.optim.Optimizer,
                     data_loader: DataLoader):
         """Train Model"""
-        print(
-            "########################   SETTING TO TRAIN MODE!  ########################\n"
-        )
         self.model.train()
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
             # if ii > 1:
             #     break
             pbar.set_description(f'training_progress_{ii}', refresh=True)
-            print(
-                "########################   PUSHING TO DEVICE!  ########################\n"
-            )
             X = X.to(self.device)
             label = label.type('torch.LongTensor').to(self.device)
             with torch.set_grad_enabled(True):
-
-                print(
-                    "########################   GENERATING OUTPUT!  ########################\n"
-                )
                 prediction = self.model(X.permute(0, 3, 1,
                                                   2).float())  # [N, Nclass]
-
-                print(
-                    "########################   COMPUTING LOSS!  ########################\n"
-                )
                 loss = self.loss_fn(prediction, label)
-
-                print(
-                    "########################   ZERO GRAD!  ########################\n"
-                )
                 optimizer.zero_grad()
-
-                print(
-                    "########################   BACKPROPOGATION!  ########################\n"
-                )
                 loss.backward()
-
-                print(
-                    "########################   OPTIMIZATION!  ########################\n"
-                )
                 optimizer.step()
-
-                print(
-                    "########################   TRAINING LOSS STORAGE!  ########################\n"
-                )
                 self.all_loss['train'] = torch.cat(
                     (self.all_loss['train'], loss.detach().view(1, -1)))
-
-        print(
-            "########################   TRAINING ACCURACY!  ########################\n"
-        )
         self.all_acc['train'] = (self.cmatrix['train'] /
                                  (self.cmatrix['train'].sum() + 1e-6)).trace()
         self.all_loss['train'] = self.all_loss['train'].cpu().numpy().mean()
 
     def eval(self, data_loader: DataLoader):
         """Eval"""
-
-        print(
-            "########################   SETTING TO EVALUATION MODE!  ########################\n"
-        )
         self.model.eval()
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
             # if ii > 1:
             #     break
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
-
-            print(
-                "########################   PUSHING TO DEVICE!  ########################\n"
-            )
             X = X.to(self.device)
             label = torch.tensor(list(map(lambda x: int(x),
                                           label))).to(self.device)
             with torch.no_grad():
-
-                print(
-                    "########################   GENERATING OUTPUT!  ########################\n"
-                )
                 prediction = self.model(X.permute(0, 3, 1,
                                                   2).float())  # [N, Nclass]
-
-                print(
-                    "########################   COMPUTING LOSS!  ########################\n"
-                )
                 loss = self.loss_fn(prediction, label)
                 p = prediction.detach().cpu().numpy()
                 cpredflat = np.argmax(p, axis=1).flatten()
                 yflat = label.cpu().numpy().flatten()
-
-                print(
-                    "########################   EVALUATION LOSS STORAGE!  ########################\n"
-                )
                 self.all_loss['val'] = torch.cat(
                     (self.all_loss['val'], loss.detach().view(1, -1)))
-
-                print(
-                    "########################   CONFUSION MATRIX GENERATION!  ########################\n"
-                )
                 self.cmatrix['val'] = self.cmatrix['val'] + \
                     confusion_matrix(yflat, cpredflat,
                                      labels=range(num_classes))
-
-        print(
-            "########################   EVALUATION ACCURACY!  ########################\n"
-        )
         self.all_acc['val'] = (self.cmatrix['val'] /
                                self.cmatrix['val'].sum()).trace()
         self.all_loss['val'] = self.all_loss['val'].cpu().numpy().mean()
@@ -254,9 +192,6 @@ def main():
     edge_weight = torch.tensor(edge_weight).to(device)
     manager = ModelManager(model_dir)
 
-    print(
-        "########################   INITIALIZATION COMPLETE!  ########################\n"
-    )
     for epoch in (pbar := tqdm(range(num_epochs))):
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
         # zero out epoch based performance variables
@@ -270,16 +205,7 @@ def main():
 
         my_model = MyModel(model, criterion, device, all_acc, all_loss,
                            cmatrix)
-
-        print(
-            "########################   STARTING TRAINING!  ########################\n"
-        )
-
         my_model.train_model(optim, dataLoader['train'])
-
-        print(
-            "########################   STARTING EVALUATION!  ########################\n"
-        )
         my_model.eval(dataLoader['val'])
 
         all_acc, all_loss, cmatrix = my_model.all_acc, my_model.all_loss, my_model.cmatrix
@@ -287,10 +213,6 @@ def main():
         # if current loss is the best we've seen, save model state with all variables
         # necessary for recreation
         if all_loss["val"] < best_loss_on_test:
-
-            print(
-                "########################   SAVING BEST MODEL!  ########################\n"
-            )
             best_loss_on_test = all_loss["val"]
 
             state = {
@@ -316,27 +238,11 @@ def main():
 
 def diagnose_example(model, manager, dataset, device, labels):
     """Diagnose example"""
-
-    print(
-        "########################   DIAGNOSING EXAMPLE!  ########################\n"
-    )
     img, label = dataset["val"][2]
-
-    print(
-        "########################   LOADING MODEL!  ########################\n"
-    )
     checkpoint = manager.load_model(f"{dataname}_densenet_best_model")
     # checkpoint = torch.load(f"output/{dataname}_densenet_best_model.pth")
-
-    print(
-        "########################   LOADING STATE DICT!  ########################\n"
-    )
     # model.load_state_dict(checkpoint.state_dict()['model_dict'])
     # model.load_state_dict(checkpoint["model_dict"])
-
-    print(
-        "########################   GENERATING OUTPUT!  ########################\n"
-    )
     input = torch.Tensor(img[None, ::]).permute(0, 3, 1, 2).float().to(device)
     output = model(input).to(device)
     output = output.detach().squeeze().cpu().numpy()
