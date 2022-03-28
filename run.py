@@ -1,12 +1,15 @@
 import argparse
 import os
+from tabnanny import check
 
 import numpy as np
 import torch
+import logging
+import torch.distributed as dist
 from dataset import Dataset, LabelManager
 from filtration import (FilterBlackAndWhite, FilterFocusMeasure, FilterHSV,
                         FilterManager)
-from model_manager import ModelManager
+from unified_image_reader import Image
 # from models import UNet
 from sklearn.metrics import confusion_matrix
 from torch import nn
@@ -14,74 +17,42 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader
 from torchvision.models import DenseNet
 from tqdm import tqdm
+import json
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--num-epochs', type=int, default=1)
-parser.add_argument('--batch-size', type=int, default=64)
-parser.add_argument('--num-classes', type=int, default=3)
-parser.add_argument('--in-channels', type=int, default=3)
-parser.add_argument('--growth-rate', type=int, default=32)
-parser.add_argument('--block-config', type=tuple, default=(2, 2, 2, 2))
-parser.add_argument('--num-init-features', type=int, default=64)
-parser.add_argument('--bn-size', type=int, default=4)
-parser.add_argument('--drop-rate', type=int, default=0)
-parser.add_argument('--patch-size', type=int, default=224)
-parser.add_argument('--train-labels', type=str, default='train_labels.csv')
-parser.add_argument('--test-labels', type=str, default='test_labels.csv')
-parser.add_argument('--num-workers', type=int, default=0)
-parser.add_argument('--classes',
-                    type=tuple,
-                    default=('Mild', 'Moderate', 'Severe'))
-
-args = vars(parser.parse_args())
-dataname = "digpath_supervised"
-SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
-SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
-SM_MODEL_DIR = os.getenv('SM_MODEL_DIR')
-# SM_CHANNEL_TRAIN = "/workspaces/dev-container/ML-Supervised/input/train"
-# SM_CHANNEL_TEST = "/workspaces/dev-container/ML-Supervised/input/test"
-# SM_OUTPUT_DIR = "/workspaces/dev-container/ML-Supervised/output"
-# number of classes in the data mask that we'll aim to predict
-num_classes = args['num_classes']
-classes = args['classes']
-in_channels = args['in_channels']  # input channel of the data, RGB = 3
-growth_rate = args['growth_rate']
-block_config = args['block_config']
-num_init_features = args['num_init_features']
-bn_size = args['bn_size']
-drop_rate = args['drop_rate']
-batch_size = args['batch_size']
-# currently, this needs to be 224 due to densenet architecture
-patch_size = args['patch_size']
-num_epochs = args['num_epochs']
-
-num_workers = args['num_workers']
-phases = ["train", 'val']  # how many phases did we create databases for?
-# when should we do valiation? note that validation is *very* time consuming, so as opposed to doing for both training and validation, we do it only for validation at the end of the epoch
-validation_phases = ['val']
-# additionally, using simply [], will skip validation entirely, drastically speeding things up
-
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 class MyModel:
     """
     Model
     """
-    def __init__(self, model: nn.Module, loss_fn: nn.Module, device: str,
-                 all_acc: dict, all_loss: dict, cmatrix: dict):
+
+    def __init__(self, model: nn.Module, loss_fn: nn.Module, device: str, checkpoint_dir: str, model_dir: str, optimizer: torch.optim.Optimizer):
         self.model = model
         self.loss_fn = loss_fn
         self.device = device
-        self.all_acc = all_acc
-        self.all_loss = all_loss
-        self.cmatrix = cmatrix
+        phases = ["train", "val"]
+        num_classes = 3
+        self.all_acc = {key: 0 for key in phases}
+        self.all_loss = {
+            key: torch.zeros(0, dtype=torch.float64).to(device)
+            for key in phases
+        }
+        self.cmatrix = {key: np.zeros((num_classes, num_classes)) for key in phases}
+        self.model_dir = model_dir
+        self.checkpoint_dir = checkpoint_dir
+        self.optimizer = optimizer
 
-    def train_model(self, optimizer: torch.optim.Optimizer,
-                    data_loader: DataLoader):
+    def parallel(self):
+        """parallel"""
+        if torch.cuda.device_count() > 1:
+            print("Gpu count: {}".format(torch.cuda.device_count()))
+            self.model = nn.DataParallel(self.model)
+
+    def train_model(self, data_loader: DataLoader):
         """Train Model"""
         self.model.train()
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
-            # if ii > 1:
-            #     break
             pbar.set_description(f'training_progress_{ii}', refresh=True)
             X = X.to(self.device)
             label = label.type('torch.LongTensor').to(self.device)
@@ -89,9 +60,9 @@ class MyModel:
                 prediction = self.model(X.permute(0, 3, 1,
                                                   2).float())  # [N, Nclass]
                 loss = self.loss_fn(prediction, label)
-                optimizer.zero_grad()
+                self.optimizer.zero_grad()
                 loss.backward()
-                optimizer.step()
+                self.optimizer.step()
                 self.all_loss['train'] = torch.cat(
                     (self.all_loss['train'], loss.detach().view(1, -1)))
         self.all_acc['train'] = (self.cmatrix['train'] /
@@ -102,8 +73,6 @@ class MyModel:
         """Eval"""
         self.model.eval()
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
-            # if ii > 1:
-            #     break
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
             X = X.to(self.device)
             label = torch.tensor(list(map(lambda x: int(x),
@@ -124,18 +93,105 @@ class MyModel:
                                self.cmatrix['val'].sum()).trace()
         self.all_loss['val'] = self.all_loss['val'].cpu().numpy().mean()
 
-    def diagnose(self, region_stream: DataLoader):
-        """Diagnose"""
-        votes = {0: 0, 1: 0, 2: 0}
-        key = {0: 'MILD', 1: 'Moderate', 2: 'Severe'}
-        for ii, region in enumerate((pbar := tqdm(region_stream))):
+    def save_model(self):
+        """Save Model"""
+        print("Saving the model.")
+        path = os.path.join(self.model_dir, 'model.pth')
+        # recommended way from http://pytorch.org/docs/master/notes/serialization.html
+        torch.save(self.model.cpu().state_dict(), path)
+
+    def save_checkpoint(self, state: dict):
+        """Save Checkpoint"""
+        path = os.path.join(self.checkpoint_dir, 'checkpoint.pth')
+        print("Saving the Checkpoint: {}".format(path))
+        torch.save({
+            'model_state_dict': self.model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            **state
+        }, path)
+
+    def load_checkpoint(self):
+        """Load Checkpoint"""
+        print("--------------------------------------------")
+        print("Checkpoint file found!")
+        path = os.path.join(self.checkpoint_dir, 'checkpoint.pth')
+        print("Loading Checkpoint From: {}".format(path))
+        checkpoint = torch.load(path)
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        epoch_number = checkpoint['epoch']
+        loss = checkpoint['loss']
+        print("Checkpoint File Loaded - epoch_number: {} - loss: {}".format(epoch_number, loss))
+        print('Resuming training from epoch: {}'.format(epoch_number + 1))
+        print("--------------------------------------------")
+        return epoch_number
+
+    def load_model(self):
+        """Load Model"""
+        path = os.path.join(self.model_dir, 'model.pth')
+        checkpoint = torch.load(path)
+        self.parallel()
+        self.model.load_state_dict(checkpoint)
+
+    def diagnose_region(self, region, labels: dict = None):
+        self.model = self.model.to(self.device)
+        region = torch.Tensor(region[None, ::]).permute(
+            0, 3, 1, 2).float().to(self.device)
+        output = self.model(region).to(self.device)
+        output = output.detach().squeeze().cpu().numpy()
+        pred = np.argmax(output)
+        if labels is not None:
+            pred = label_decoder(labels, pred)
+        return pred
+
+    def diagnose_wsi(self, file_path: str, aggregate, labels: dict = None):
+        region_classifications = {}
+        for i, region in enumerate(Image(file_path)):
             region = region.to(self.device)
-            pbar.set_description(f'diagnose_progress_{ii}', refresh=True)
             self.model.eval()
-            output = self.model(region[None, ::].to(self.device))
-            output = output.detach().squeeze().cpu().numpy()
-            votes[np.argmax(output)] += 1
-        return key[max(votes, key=votes.get)]  # key with max value
+            pred = self.diagnose_region(region, labels)
+            region_classifications[i] = pred
+        return aggregate(region_classifications)
+
+
+def label_decoder(labels: dict, x: int):
+    return list(labels.keys())[list(labels.values()).index(x)]
+
+
+def plurality_vote(region_classifications: dict):
+    votes = {c: 0 for c in classes}
+    for c in region_classifications.values():
+        votes[c] += 1
+
+    return votes[max(votes, key=votes.get)]
+
+
+def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distributed: bool = False):
+    if distributed:
+        # Initialize the distributed environment.
+        world_size = len(hosts)
+        os.environ['WORLD_SIZE'] = str(world_size)
+        host_rank = hosts.index(current_host)
+        os.environ['RANK'] = str(host_rank)
+        dist.init_process_group(backend=dist_backend,
+                                rank=host_rank, world_size=world_size)
+        print(
+            'Initialized the distributed environment: \'{}\' backend on {} nodes. '.format(
+                dist_backend,
+                dist.get_world_size()) + 'Current host rank is {}. Using cuda: {}. Number of gpus: {}'.format(
+                dist.get_rank(), torch.cuda.is_available(), num_gpus))
+
+    my_model.parallel()
+
+    if not os.path.isfile(os.path.join(checkpoint_dir, 'checkpoint.pth')):
+        epoch_number = 0
+    else:
+        epoch_number = my_model.load_checkpoint()
+
+    if epoch_number == num_epochs:
+        num_epochs = 2 * num_epochs
+        my_model.load_model()
+    return epoch_number
 
 
 def main():
@@ -143,11 +199,12 @@ def main():
     train_dir = SM_CHANNEL_TRAIN
     test_dir = SM_CHANNEL_TEST
     model_dir = SM_MODEL_DIR
-    # filtration = None
-    filtration = FilterManager(
-        filters=[FilterBlackAndWhite(),
-                 FilterHSV(),
-                 FilterFocusMeasure()])
+    checkpoint_dir = SM_CHECKPOINT_DIR
+    filtration = None
+    # filtration = FilterManager(
+    #     filters=[FilterBlackAndWhite(),
+    #              FilterHSV(),
+    #              FilterFocusMeasure()])
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(str(device))
     model = DenseNet(growth_rate=growth_rate,
@@ -171,7 +228,6 @@ def main():
                                      shuffle=True,
                                      num_workers=num_workers,
                                      pin_memory=True)
-    print(f"train dataset size:\t{len(dataset['train'])}")
     print(f'train dataset region counts: {dataset["train"]._region_counts}')
     dataset['val'] = Dataset(data_dir=test_dir,
                              labels=LabelManager(
@@ -185,30 +241,19 @@ def main():
                                    pin_memory=True)
     print(f"val dataset size:\t{len(dataset['val'])}")
     print(f'val dataset region counts: {dataset["val"]._region_counts}')
-    criterion = nn.CrossEntropyLoss()
-
+    criterion = nn.CrossEntropyLoss().to(device)
     best_loss_on_test = np.Infinity
-    edge_weight = 1.0
-    edge_weight = torch.tensor(edge_weight).to(device)
-    manager = ModelManager(model_dir)
 
-    for epoch in (pbar := tqdm(range(num_epochs))):
+    my_model = MyModel(model, criterion, device, checkpoint_dir, model_dir, optim)
+    epoch_number = load_model(checkpoint_dir, my_model, num_epochs, distributed=False)
+
+    for epoch in (pbar := tqdm(range(epoch_number, num_epochs))):
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
-        # zero out epoch based performance variables
-        all_acc = {key: 0 for key in phases}
-        # keep this on GPU for greatly improved performance
-        all_loss = {
-            key: torch.zeros(0, dtype=torch.float64).to(device)
-            for key in phases
-        }
-        cmatrix = {key: np.zeros((num_classes, num_classes)) for key in phases}
 
-        my_model = MyModel(model, criterion, device, all_acc, all_loss,
-                           cmatrix)
-        my_model.train_model(optim, dataLoader['train'])
+        my_model.train_model(dataLoader['train'])
         my_model.eval(dataLoader['val'])
 
-        all_acc, all_loss, cmatrix = my_model.all_acc, my_model.all_loss, my_model.cmatrix
+        all_loss = my_model.all_loss
 
         # if current loss is the best we've seen, save model state with all variables
         # necessary for recreation
@@ -227,31 +272,67 @@ def main():
                 'num_classes': num_classes
             }
 
-            manager.save_model(model_name=f"{dataname}_densenet_best_model",
-                               model=model,
-                               model_info=state,
-                               overwrite_model=True)
-            # torch.save(state, f"output/{dataname}_densenet_best_model.pth")
-
-    diagnose_example(model, manager, dataset, device, labels)
-
-
-def diagnose_example(model, manager, dataset, device, labels):
-    """Diagnose example"""
-    img, label = dataset["val"][2]
-    checkpoint = manager.load_model(f"{dataname}_densenet_best_model")
-    # checkpoint = torch.load(f"output/{dataname}_densenet_best_model.pth")
-    # model.load_state_dict(checkpoint.state_dict()['model_dict'])
-    # model.load_state_dict(checkpoint["model_dict"])
-    input = torch.Tensor(img[None, ::]).permute(0, 3, 1, 2).float().to(device)
-    output = model(input).to(device)
-    output = output.detach().squeeze().cpu().numpy()
-
-    def label_decoder(x): return list(labels.keys())[list(labels.values()).index(
-        x)]
-    print(f"True class: {label_decoder(label)}\n")
-    print(f"Predicted class: {label_decoder(np.argmax(output))}")
+            my_model.save_checkpoint(state)
+    my_model.save_model()
+    region, label = dataset['val'][2]
+    print(my_model.diagnose_region(region, labels))
+    print(labels, label_decoder(label))
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--num-epochs', type=int, default=1)
+    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--num-classes', type=int, default=3)
+    parser.add_argument('--in-channels', type=int, default=3)
+    parser.add_argument('--growth-rate', type=int, default=32)
+    parser.add_argument('--block-config', type=tuple, default=(2, 2, 2, 2))
+    parser.add_argument('--num-init-features', type=int, default=64)
+    parser.add_argument('--bn-size', type=int, default=4)
+    parser.add_argument('--drop-rate', type=int, default=0)
+    parser.add_argument('--patch-size', type=int, default=224)
+    parser.add_argument('--train-labels', type=str, default='train_labels.csv')
+    parser.add_argument('--test-labels', type=str, default='test_labels.csv')
+    parser.add_argument('--num-workers', type=int, default=0)
+    parser.add_argument('--classes',
+                        type=tuple,
+                        default=('Mild', 'Moderate', 'Severe'))
+    parser.add_argument('--dist_backend', type=str, default='gloo')
+
+    parser.add_argument('--hosts', type=list,
+                        default=json.loads(os.environ['SM_HOSTS']))
+    parser.add_argument('--current-host', type=str,
+                        default=os.environ['SM_CURRENT_HOST'])
+    parser.add_argument('--num-gpus', type=int, default=os.environ['SM_NUM_GPUS'])
+
+
+    args = vars(parser.parse_args())
+    dataname = "digpath_supervised"
+    SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
+    SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
+    SM_MODEL_DIR = os.getenv('SM_MODEL_DIR')
+    SM_CHECKPOINT_DIR = os.getenv('SM_CHECKPOINT_DIR')
+    # SM_CHANNEL_TRAIN = "/workspaces/dev-container/ML-Supervised/input/train"
+    # SM_CHANNEL_TEST = "/workspaces/dev-container/ML-Supervised/input/test"
+    # SM_OUTPUT_DIR = "/workspaces/dev-container/ML-Supervised/output"
+    # number of classes in the data mask that we'll aim to predict
+    num_classes = args['num_classes']
+    classes = args['classes']
+    in_channels = args['in_channels']  # input channel of the data, RGB = 3
+    growth_rate = args['growth_rate']
+    block_config = args['block_config']
+    num_init_features = args['num_init_features']
+    bn_size = args['bn_size']
+    drop_rate = args['drop_rate']
+    batch_size = args['batch_size']
+    # currently, this needs to be 224 due to densenet architecture
+    patch_size = args['patch_size']
+    num_epochs = args['num_epochs']
+    num_gpus = args['num_gpus']
+    hosts = args['hosts']
+    current_host = args['current_host']
+    dist_backend = args['dist_backend']
+
+
+    num_workers = args['num_workers']
     main()
