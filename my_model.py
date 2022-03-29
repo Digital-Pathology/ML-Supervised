@@ -67,8 +67,7 @@ class MyModel:
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
             X = X.to(self.device)
-            label = torch.tensor(list(map(lambda x: int(x),
-                                          label))).to(self.device)
+            label = torch.tensor(list(map(int, label))).to(self.device)
             with torch.no_grad():
                 prediction = self.model(X.permute(0, 3, 1,
                                                   2).float())  # [N, Nclass]
