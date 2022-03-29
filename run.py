@@ -108,8 +108,8 @@ def main():
     for epoch in (pbar := tqdm(range(epoch_number, num_epochs))):
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
 
-        my_model.train_model(dataLoader['train'], num_classes)
-        my_model.eval(dataLoader['val'])
+        my_model.train_model(dataLoader['train'])
+        my_model.eval(dataLoader['val'], num_classes)
 
         all_loss = my_model.all_loss
 
