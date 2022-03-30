@@ -6,10 +6,10 @@ import numpy as np
 import torch
 import logging
 import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
 from dataset import Dataset, LabelManager
 from filtration import (FilterBlackAndWhite, FilterFocusMeasure, FilterHSV,
                         FilterManager)
-# from models import UNet
 from torch import nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader
@@ -18,12 +18,13 @@ from tqdm import tqdm
 import json
 
 from my_model import MyModel
+from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distributed: bool = False):
+def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distributed: bool = True):
     """Load Model"""
     if distributed:
         # Initialize the distributed environment.
@@ -38,8 +39,10 @@ def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distribu
                 dist_backend,
                 dist.get_world_size()) + 'Current host rank is {}. Using cuda: {}. Number of gpus: {}'.format(
                 dist.get_rank(), torch.cuda.is_available(), num_gpus))
+        local_rank = os.environ["LOCAL_RANK"]
+        torch.cuda.set_device(local_rank)
 
-    my_model.parallel()
+    my_model.parallel(distributed)
 
     if not os.path.isfile(os.path.join(checkpoint_dir, 'checkpoint.pth')):
         epoch_number = 0
@@ -58,11 +61,21 @@ def main():
     test_dir = SM_CHANNEL_TEST
     model_dir = SM_MODEL_DIR
     checkpoint_dir = SM_CHECKPOINT_DIR
-    filtration = None
-    # filtration = FilterManager(
-    #     filters=[FilterBlackAndWhite(),
-    #              FilterHSV(),
-    #              FilterFocusMeasure()])
+    # filtration = None
+    filtration = FilterManager(
+        filters=[FilterBlackAndWhite(),
+                 FilterHSV(),
+                 FilterFocusMeasure()])
+
+    session = S3SageMakerUtils()
+    filtration_cache = 'filtration_cache.h5'
+
+    try:
+        session.download_data('.', 'digpath-cache', f'main/{filtration_cache}')
+    except:
+        print('Filtration Cache Download from S3 failed!')
+    
+    
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(str(device))
     model = DenseNet(growth_rate=growth_rate,
@@ -80,30 +93,48 @@ def main():
                                labels=LabelManager(
                                    train_dir,
                                    label_postprocessor=label_encoder),
-                               filtration=filtration)
+                               filtration=filtration,
+                               filtration_cache=filtration_cache)
+    train_sampler = DistributedSampler(
+            dataset['train'],
+            num_replicas=dist.get_world_size(),
+            rank=dist.get_rank())
     dataLoader['train'] = DataLoader(dataset['train'],
                                      batch_size=batch_size,
                                      shuffle=True,
+                                     sampler=train_sampler,
                                      num_workers=num_workers,
                                      pin_memory=True)
     print(f'train dataset region counts: {dataset["train"]._region_counts}')
     dataset['val'] = Dataset(data_dir=test_dir,
                              labels=LabelManager(
                                  test_dir, label_postprocessor=label_encoder),
-                             filtration=filtration)
+                             filtration=filtration,
+                             filtration_cache=filtration_cache)
+    test_sampler = DistributedSampler(
+            dataset['test'],
+            num_replicas=dist.get_world_size(),
+            rank=dist.get_rank())
 
     dataLoader['val'] = DataLoader(dataset['val'],
                                    batch_size=batch_size,
                                    shuffle=True,
+                                   sampler=test_sampler,
                                    num_workers=num_workers,
                                    pin_memory=True)
     print(f"val dataset size:\t{len(dataset['val'])}")
     print(f'val dataset region counts: {dataset["val"]._region_counts}')
+
+    try:
+        session.upload_data(filtration_cache, 'digpath-cache', f'{UNIQUE_IMAGE_IDENTIFIER}/{filtration_cache}')
+    except:
+        print('Filtration Cache Upload to S3 failed!')
+
     criterion = nn.CrossEntropyLoss().to(device)
     best_loss_on_test = np.Infinity
 
     my_model = MyModel(model, criterion, device, checkpoint_dir, model_dir, optim)
-    epoch_number = load_model(checkpoint_dir, my_model, num_epochs, distributed=False)
+    epoch_number = load_model(checkpoint_dir, my_model, num_epochs, distributed=True)
 
     for epoch in (pbar := tqdm(range(epoch_number, num_epochs))):
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
@@ -148,8 +179,6 @@ if __name__ == "__main__":
     parser.add_argument('--bn-size', type=int, default=4)
     parser.add_argument('--drop-rate', type=int, default=0)
     parser.add_argument('--patch-size', type=int, default=224)
-    parser.add_argument('--train-labels', type=str, default='train_labels.csv')
-    parser.add_argument('--test-labels', type=str, default='test_labels.csv')
     parser.add_argument('--num-workers', type=int, default=0)
     parser.add_argument('--classes',
                         type=tuple,
@@ -169,9 +198,8 @@ if __name__ == "__main__":
     SM_CHANNEL_TEST = os.getenv('SM_CHANNEL_TEST')
     SM_MODEL_DIR = os.getenv('SM_MODEL_DIR')
     SM_CHECKPOINT_DIR = os.getenv('SM_CHECKPOINT_DIR')
-    # SM_CHANNEL_TRAIN = "/workspaces/dev-container/ML-Supervised/input/train"
-    # SM_CHANNEL_TEST = "/workspaces/dev-container/ML-Supervised/input/test"
-    # SM_OUTPUT_DIR = "/workspaces/dev-container/ML-Supervised/output"
+    UNIQUE_IMAGE_IDENTIFIER = os.getenv('UNIQUE_IMAGE_IDENTIFIER')
+
     # number of classes in the data mask that we'll aim to predict
     num_classes = args['num_classes']
     classes = args['classes']
@@ -182,6 +210,8 @@ if __name__ == "__main__":
     bn_size = args['bn_size']
     drop_rate = args['drop_rate']
     batch_size = args['batch_size']
+    batch_size //= dist.get_world_size()
+    batch_size = max(batch_size, 1)
     # currently, this needs to be 224 due to densenet architecture
     patch_size = args['patch_size']
     num_epochs = args['num_epochs']
@@ -189,7 +219,5 @@ if __name__ == "__main__":
     hosts = args['hosts']
     current_host = args['current_host']
     dist_backend = args['dist_backend']
-
-
     num_workers = args['num_workers']
     main()

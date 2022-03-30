@@ -7,6 +7,7 @@ from tqdm import tqdm
 from torch import nn
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from torch.nn.parallel import DistributedDataParallel as DDP
 from sklearn.metrics import confusion_matrix
 
 from unified_image_reader import Image
@@ -35,9 +36,11 @@ class MyModel:
         self.checkpoint_dir = checkpoint_dir
         self.optimizer = optimizer
 
-    def parallel(self):
+    def parallel(self, distributed: bool = True):
         """parallel"""
-        if torch.cuda.device_count() > 1:
+        if distributed:
+            self.model = DDP(self.model)
+        elif torch.cuda.device_count() > 1:
             print("Gpu count: {}".format(torch.cuda.device_count()))
             self.model = nn.DataParallel(self.model)
 
