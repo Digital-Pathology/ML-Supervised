@@ -24,7 +24,20 @@ logger.setLevel(logging.DEBUG)
 
 
 def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distributed: bool = False):
-    """Load Model"""
+    """
+    load_model _summary_
+
+    :param checkpoint_dir: _description_
+    :type checkpoint_dir: str
+    :param my_model: _description_
+    :type my_model: MyModel
+    :param num_epochs: _description_
+    :type num_epochs: int
+    :param distributed: _description_, defaults to False
+    :type distributed: bool, optional
+    :return: _description_
+    :rtype: _type_
+    """    
     if distributed:
         # Initialize the distributed environment.
         world_size = len(hosts)
