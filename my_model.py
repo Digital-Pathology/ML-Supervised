@@ -94,7 +94,9 @@ class MyModel:
             for batch in iterate_by_n(regions, data_loader.batch_size, yield_remainder=True):
                 for ii, X in enumerate((pbar := tqdm(batch))):
                     pbar.set_description(f'validation_progress_{ii}', refresh=True)
-                    print(X, label)
+                    print(X)
+                    print(label)
+                    print(data_loader.batch_size)
                     X = torch.tensor(X).to(self.device)
                     # label = torch.tensor(list(map(int, label))).to(self.device)
                     label = torch.tensor(label).to(self.device)
