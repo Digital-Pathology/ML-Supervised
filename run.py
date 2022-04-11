@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distributed: bool = True):
+def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distributed: bool = False):
     """Load Model"""
     if distributed:
         # Initialize the distributed environment.
@@ -41,18 +41,60 @@ def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distribu
                 dist.get_rank(), torch.cuda.is_available(), num_gpus))
         local_rank = os.environ["LOCAL_RANK"]
         torch.cuda.set_device(local_rank)
-
-    my_model.parallel(distributed)
+        batch_size //= dist.get_world_size()
+        batch_size = max(batch_size, 1)
+        
+        my_model.parallel(distributed)
 
     if not os.path.isfile(os.path.join(checkpoint_dir, 'checkpoint.pth')):
         epoch_number = 0
     else:
         epoch_number = my_model.load_checkpoint()
 
-    if epoch_number == num_epochs:
-        num_epochs = 2 * num_epochs
-        my_model.load_model()
+    # if epoch_number == num_epochs:
+    #     num_epochs = 2 * num_epochs
+    #     my_model.load_model()
     return epoch_number
+
+def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False):
+    dataset, data_loader = {}, {}
+    dataset['train'] = Dataset(data_dir=train_dir,
+                               labels=LabelManager(
+                                   train_dir,
+                                   label_postprocessor=label_encoder),
+                               filtration=filtration,
+                               filtration_cache=filtration_cache)
+    dataset['val'] = Dataset(data_dir=val_dir,
+                             labels=LabelManager(
+                                 val_dir, label_postprocessor=label_encoder),
+                             filtration=filtration,
+                             filtration_cache=filtration_cache)
+
+    train_sampler, val_sampler = None, None
+    if distributed:
+        train_sampler = DistributedSampler(
+            dataset['train'],
+            num_replicas=dist.get_world_size(),
+            rank=dist.get_rank())
+        val_sampler = DistributedSampler(
+            dataset['val'],
+            num_replicas=dist.get_world_size(),
+            rank=dist.get_rank())
+
+    data_loader['train'] = DataLoader(dataset['train'],
+                                     batch_size=batch_size,
+                                     shuffle=True,
+                                     sampler=train_sampler,
+                                     num_workers=num_workers,
+                                     pin_memory=True)
+    data_loader['val'] = DataLoader(dataset['val'],
+                                   batch_size=batch_size,
+                                   shuffle=True,
+                                   sampler=val_sampler,
+                                   num_workers=num_workers,
+                                   pin_memory=True)
+    return dataset, data_loader
+        
 
 
 def main():
@@ -85,45 +127,9 @@ def main():
                      drop_rate=drop_rate,
                      num_classes=num_classes).to(device)
     optim = Adam(model.parameters())
-    dataset = {}
-    dataLoader = {}
     labels = {label: idx for idx, label in enumerate(classes)}
     def label_encoder(x): return labels[os.path.basename(x)]
-    dataset['train'] = Dataset(data_dir=train_dir,
-                               labels=LabelManager(
-                                   train_dir,
-                                   label_postprocessor=label_encoder),
-                               filtration=filtration,
-                               filtration_cache=filtration_cache)
-    train_sampler = DistributedSampler(
-            dataset['train'],
-            num_replicas=dist.get_world_size(),
-            rank=dist.get_rank())
-    dataLoader['train'] = DataLoader(dataset['train'],
-                                     batch_size=batch_size,
-                                     shuffle=True,
-                                     sampler=train_sampler,
-                                     num_workers=num_workers,
-                                     pin_memory=True)
-    print(f'train dataset region counts: {dataset["train"]._region_counts}')
-    dataset['val'] = Dataset(data_dir=test_dir,
-                             labels=LabelManager(
-                                 test_dir, label_postprocessor=label_encoder),
-                             filtration=filtration,
-                             filtration_cache=filtration_cache)
-    test_sampler = DistributedSampler(
-            dataset['test'],
-            num_replicas=dist.get_world_size(),
-            rank=dist.get_rank())
-
-    dataLoader['val'] = DataLoader(dataset['val'],
-                                   batch_size=batch_size,
-                                   shuffle=True,
-                                   sampler=test_sampler,
-                                   num_workers=num_workers,
-                                   pin_memory=True)
-    print(f"val dataset size:\t{len(dataset['val'])}")
-    print(f'val dataset region counts: {dataset["val"]._region_counts}')
+    dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache, label_encoder, distributed=False)
 
     try:
         session.upload_data(filtration_cache, 'digpath-cache', f'{UNIQUE_IMAGE_IDENTIFIER}/{filtration_cache}')
@@ -134,13 +140,13 @@ def main():
     best_loss_on_test = np.Infinity
 
     my_model = MyModel(model, criterion, device, checkpoint_dir, model_dir, optim)
-    epoch_number = load_model(checkpoint_dir, my_model, num_epochs, distributed=True)
+    epoch_number = load_model(checkpoint_dir, my_model, num_epochs, distributed=False)
 
     for epoch in (pbar := tqdm(range(epoch_number, num_epochs))):
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
 
-        my_model.train_model(dataLoader['train'])
-        my_model.eval(dataLoader['val'], num_classes)
+        my_model.train_model(data_loader['train'])
+        my_model.eval(data_loader['val'], num_classes)
 
         all_loss = my_model.all_loss
 
@@ -210,8 +216,6 @@ if __name__ == "__main__":
     bn_size = args['bn_size']
     drop_rate = args['drop_rate']
     batch_size = args['batch_size']
-    batch_size //= dist.get_world_size()
-    batch_size = max(batch_size, 1)
     # currently, this needs to be 224 due to densenet architecture
     patch_size = args['patch_size']
     num_epochs = args['num_epochs']
