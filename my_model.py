@@ -88,7 +88,7 @@ class MyModel:
         cmatrix_by_file = {}
         dataset = data_loader.dataset
         for file_name, label, regions in dataset.iterate_by_file():
-            num_regions = dataset._file_counts[file_name] - dataset._file_discounts[file_name]
+            num_regions = dataset._region_counts[file_name] - dataset._region_discounts[file_name]
             loss_by_file[file_name] = torch.zeros(0, dtype=torch.float64).to(self.device)
             cmatrix_by_file[file_name] = np.zeros((num_classes, num_classes))
             for batch in iterate_by_n(regions, data_loader.batch_size, yield_remainder=True):
