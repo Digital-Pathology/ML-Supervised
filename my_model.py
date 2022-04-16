@@ -48,8 +48,8 @@ class MyModel:
     def train_model(self, data_loader: DataLoader):
         """Train Model"""
         self.model.train()
-        for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
-            pbar.set_description(f'training_progress_{ii}', refresh=True)
+        for ii, (X, label) in enumerate(data_loader):
+            # pbar.set_description(f'training_progress_{ii}', refresh=True)
             X = X.to(self.device)
             label = label.type('torch.LongTensor').to(self.device)
             with torch.set_grad_enabled(True):
@@ -69,44 +69,27 @@ class MyModel:
         """Eval"""
         self.model.eval()
 
-        # APPROACH 1 (encapsulate in dataset) [preferred]
-
-        # for file, regions in data_loader.get_regions_by_files().items():
-        #     regions = torch.Tensor(regions)
-        #     label = data_loader.get_label_by_wsi(file)
-        # ... rest of eval
-
-        # APPROACH 2 (explicitly write here)
-
-        # fnames = os.listdir(data_loader)
-        # for f in fnames:
-        #     data = Dataset(f)
-        #     loader = DataLoader(data)
-        # ... rest of eval
-
         loss_by_file = {}
         cmatrix_by_file = {}
         dataset = data_loader.dataset
         for file_name, label, regions in dataset.iterate_by_file():
-            num_regions = dataset._region_counts[file_name] - dataset._region_discounts[file_name]
+            num_regions = dataset.number_of_regions(file_name)
             loss_by_file[file_name] = torch.zeros(0, dtype=torch.float64).to(self.device)
             cmatrix_by_file[file_name] = np.zeros((num_classes, num_classes))
             for batch in iterate_by_n(regions, data_loader.batch_size, yield_remainder=True):
                 for ii, X in enumerate((pbar := tqdm(batch))):
                     pbar.set_description(f'validation_progress_{ii}', refresh=True)
-                    print(X)
-                    print(label)
-                    print(data_loader.batch_size)
                     X = torch.tensor(X).to(self.device)
                     # label = torch.tensor(list(map(int, label))).to(self.device)
-                    label = torch.tensor(label).to(self.device)
+                    label = torch.tensor([label]).to(self.device)
                     with torch.no_grad():
-                        prediction = self.model(X.permute(0, 3, 1,
-                                                        2).float())  # [N, Nclass]
+                        prediction = self.model(X[None, ...].permute(0, 3, 2, 1).float())  # [N, Nclass]
                         loss = self.loss_fn(prediction, label)
                         p = prediction.detach().cpu().numpy()
                         cpredflat = np.argmax(p, axis=1).flatten()
                         yflat = label.cpu().numpy().flatten()
+                        print("Loss:", loss.shape)
+                        print("Stored Loss:", loss_by_file[file_name].shape)
                         new_loss =  torch.cat((loss_by_file[file_name], loss.detach().view(1, -1)))
                         loss_by_file[file_name] = torch.add(loss_by_file[file_name], new_loss)
                         cmatrix_by_file[file_name] += confusion_matrix(yflat, cpredflat, labels=range(num_classes))

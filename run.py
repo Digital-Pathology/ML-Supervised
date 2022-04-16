@@ -47,13 +47,14 @@ def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distribu
         my_model.parallel(distributed)
 
     if not os.path.isfile(os.path.join(checkpoint_dir, 'checkpoint.pth')):
+        print("no checkpoint")
         epoch_number = 0
     else:
         epoch_number = my_model.load_checkpoint()
 
-    # if epoch_number == num_epochs:
+    if epoch_number == num_epochs:
     #     num_epochs = 2 * num_epochs
-    #     my_model.load_model()
+        my_model.load_model()
     return epoch_number
 
 def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False):
@@ -103,12 +104,11 @@ def main():
     test_dir = SM_CHANNEL_TEST
     model_dir = SM_MODEL_DIR
     checkpoint_dir = SM_CHECKPOINT_DIR
-    # filtration = None
-    filtration = FilterManager(
+    filtration = None
+    '''filtration = FilterManager(
         filters=[FilterBlackAndWhite(),
                  FilterHSV(),
-                 FilterFocusMeasure()])
-
+                 FilterFocusMeasure()])'''
     session = S3SageMakerUtils()
     filtration_cache = 'filtration_cache.h5'
 
@@ -146,7 +146,7 @@ def main():
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
 
         my_model.train_model(data_loader['train'])
-        my_model.eval(data_loader['val'], num_classes)
+        # my_model.eval(data_loader['val'], num_classes)
 
         all_loss = my_model.all_loss
 
@@ -175,7 +175,7 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-epochs', type=int, default=1)
+    parser.add_argument('--num-epochs', type=int, default=100)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--num-classes', type=int, default=3)
     parser.add_argument('--in-channels', type=int, default=3)
