@@ -146,7 +146,7 @@ def main():
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
 
         my_model.train_model(data_loader['train'])
-        # my_model.eval(data_loader['val'], num_classes)
+        my_model.eval(data_loader['val'], num_classes)
 
         all_loss = my_model.all_loss
 
@@ -186,15 +186,11 @@ if __name__ == "__main__":
     parser.add_argument('--drop-rate', type=int, default=0)
     parser.add_argument('--patch-size', type=int, default=224)
     parser.add_argument('--num-workers', type=int, default=0)
-    parser.add_argument('--classes',
-                        type=tuple,
-                        default=('Mild', 'Moderate', 'Severe'))
+    parser.add_argument('--classes', type=tuple, default=('Mild', 'Moderate', 'Severe'))
     parser.add_argument('--dist_backend', type=str, default='gloo')
 
-    parser.add_argument('--hosts', type=list,
-                        default=json.loads(os.environ['SM_HOSTS']))
-    parser.add_argument('--current-host', type=str,
-                        default=os.environ['SM_CURRENT_HOST'])
+    parser.add_argument('--hosts', type=list, default=json.loads(os.environ['SM_HOSTS']))
+    parser.add_argument('--current-host', type=str, default=os.environ['SM_CURRENT_HOST'])
     parser.add_argument('--num-gpus', type=int, default=os.environ['SM_NUM_GPUS'])
 
 

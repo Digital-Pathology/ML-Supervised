@@ -59,10 +59,8 @@ class MyModel:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                self.all_loss['train'] = torch.cat(
-                    (self.all_loss['train'], loss.detach().view(1, -1)))
-        self.all_acc['train'] = (self.cmatrix['train'] /
-                                 (self.cmatrix['train'].sum() + 1e-6)).trace()
+                self.all_loss['train'] = torch.cat((self.all_loss['train'], loss.detach().view(1, -1)))
+        self.all_acc['train'] = (self.cmatrix['train'] / (self.cmatrix['train'].sum() + 1e-6)).trace()
         self.all_loss['train'] = self.all_loss['train'].cpu().numpy().mean()
 
     def eval(self, data_loader: DataLoader, num_classes: int):
@@ -74,7 +72,7 @@ class MyModel:
         dataset = data_loader.dataset
         for file_name, label, regions in dataset.iterate_by_file():
             num_regions = dataset.number_of_regions(file_name)
-            loss_by_file[file_name] = torch.zeros(0, dtype=torch.float64).to(self.device)
+            loss_by_file[file_name] = 0 #torch.zeros(0, dtype=torch.float64).to(self.device)
             cmatrix_by_file[file_name] = np.zeros((num_classes, num_classes))
             for batch in iterate_by_n(regions, data_loader.batch_size, yield_remainder=True):
                 for ii, X in enumerate((pbar := tqdm(batch))):
@@ -83,16 +81,25 @@ class MyModel:
                     # label = torch.tensor(list(map(int, label))).to(self.device)
                     label = torch.tensor([label]).to(self.device)
                     with torch.no_grad():
+                        # print("""###################################################################\n# Code is broken within this block\n###################################################################""")
                         prediction = self.model(X[None, ...].permute(0, 3, 2, 1).float())  # [N, Nclass]
+                        # print('prediction: ', prediction)
                         loss = self.loss_fn(prediction, label)
+                        # print('loss: ', loss)
                         p = prediction.detach().cpu().numpy()
+                        # print('p: ', p)
                         cpredflat = np.argmax(p, axis=1).flatten()
+                        # print('cpredflat: ', cpredflat)
                         yflat = label.cpu().numpy().flatten()
-                        print("Loss:", loss.shape)
-                        print("Stored Loss:", loss_by_file[file_name].shape)
-                        new_loss =  torch.cat((loss_by_file[file_name], loss.detach().view(1, -1)))
-                        loss_by_file[file_name] = torch.add(loss_by_file[file_name], new_loss)
-                        cmatrix_by_file[file_name] += confusion_matrix(yflat, cpredflat, labels=range(num_classes))
+                        # print('yflat: ', yflat)
+                        # print("Loss:", loss.shape)
+                        # print("Stored Loss:", loss_by_file[file_name])
+                        new_loss = loss_by_file[file_name] + loss.item()
+                        # print('new_loss: ', new_loss)
+                        loss_by_file[file_name] = new_loss #torch.add(loss_by_file[file_name], new_loss)
+                        # print('loss_by_file: ', loss_by_file[file_name])
+                        cmatrix_by_file[file_name] = np.add(cmatrix_by_file[file_name], confusion_matrix(yflat, cpredflat, labels=range(num_classes)))
+                        # print("""###################################################################\n# You survived one more iteration! Good job.\n###################################################################""")
                         # self.all_loss['val'] = torch.cat(
                         #     (self.all_loss['val'], loss.detach().view(1, -1)))
                         # self.cmatrix['val'] = self.cmatrix['val'] + \
@@ -101,9 +108,8 @@ class MyModel:
 
             self.all_loss['val'] = loss_by_file[file_name] / num_regions
             self.cmatrix['val'] = cmatrix_by_file[file_name] / num_regions
-        self.all_acc['val'] = (self.cmatrix['val'] /
-                            self.cmatrix['val'].sum()).trace()
-        self.all_loss['val'] = self.all_loss['val'].cpu().numpy().mean()
+        self.all_acc['val'] = (self.cmatrix['val'] / self.cmatrix['val'].sum()).trace()
+        # self.all_loss['val'] = self.all_loss['val'].cpu().numpy().mean()
 
     def save_model(self):
         """Save Model"""
