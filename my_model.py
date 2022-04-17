@@ -29,9 +29,13 @@ class MyModel:
         num_classes = 3
         self.all_acc = {key: 0 for key in phases}
         self.all_loss = {
-            key: torch.zeros(0, dtype=torch.float64).to(device)
-            for key in phases
+            'train' : torch.zeros(0, dtype=torch.float64).to(device),
+            'val' : 0,
         }
+        # self.all_loss = {
+        #     key: torch.zeros(0, dtype=torch.float64).to(device)
+        #     for key in phases
+        # }
         self.cmatrix = {key: np.zeros((num_classes, num_classes)) for key in phases}
         self.model_dir = model_dir
         self.checkpoint_dir = checkpoint_dir
