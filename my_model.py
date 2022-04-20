@@ -7,9 +7,11 @@ from tqdm import tqdm
 from torch import nn
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from torch.nn.parallel import DistributedDataParallel as DDP
 from sklearn.metrics import confusion_matrix
 
 from unified_image_reader import Image
+from model_manager.util import iterate_by_n
 from utils import label_decoder
 
 
@@ -37,7 +39,7 @@ class MyModel:
         self.model = model
         self.loss_fn = loss_fn
         self.device = device
-        phases = ["train", "val"]
+        phases = ["train"]
         num_classes = 3
         self.all_acc = {key: 0 for key in phases}
         self.all_loss = {
@@ -49,24 +51,25 @@ class MyModel:
         self.checkpoint_dir = checkpoint_dir
         self.optimizer = optimizer
 
-    def parallel(self):
+    def parallel(self, distributed: bool = True):
         """
         parallel _summary_
-        """        
-        if torch.cuda.device_count() > 1:
-            print("Gpu count: {}".format(torch.cuda.device_count()))
+        """  
+        if distributed:
+            self.model = DDP(self.model)
+        elif torch.cuda.device_count() > 1:
+            print(f"Gpu count: {torch.cuda.device_count()}")
             self.model = nn.DataParallel(self.model)
 
     def train_model(self, data_loader: DataLoader):
         """
-        train_model _summary_
 
         :param data_loader: _description_
         :type data_loader: DataLoader
-        """        
+        """
+        self.all_loss['train'] = torch.zeros(0, dtype=torch.float64).to(self.device)
         self.model.train()
-        for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
-            pbar.set_description(f'training_progress_{ii}', refresh=True)
+        for ii, (X, label) in enumerate(data_loader):
             X = X.to(self.device)
             label = label.type('torch.LongTensor').to(self.device)
             with torch.set_grad_enabled(True):
@@ -76,6 +79,8 @@ class MyModel:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
+                print(self.all_loss['train'])
+                print(loss.detach().view(1, -1))
                 self.all_loss['train'] = torch.cat(
                     (self.all_loss['train'], loss.detach().view(1, -1)))
         self.all_acc['train'] = (self.cmatrix['train'] /
@@ -92,6 +97,7 @@ class MyModel:
         :type num_classes: int
         """        
         self.model.eval()
+        self.all_loss['val'] = torch.zeros(0, dtype=torch.float64).to(self.device)
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
             X = X.to(self.device)
@@ -151,7 +157,7 @@ class MyModel:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         epoch_number = checkpoint['epoch']
-        loss = checkpoint['loss']
+        loss = checkpoint['best_loss_on_test']
         print("Checkpoint File Loaded - epoch_number: {} - loss: {}".format(epoch_number, loss))
         print('Resuming training from epoch: {}'.format(epoch_number + 1))
         print("--------------------------------------------")
