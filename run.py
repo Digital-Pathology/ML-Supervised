@@ -25,7 +25,20 @@ logger.setLevel(logging.DEBUG)
 
 
 def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distributed: bool = False):
-    """Load Model"""
+    """
+    load_model _summary_
+
+    :param checkpoint_dir: _description_
+    :type checkpoint_dir: str
+    :param my_model: _description_
+    :type my_model: MyModel
+    :param num_epochs: _description_
+    :type num_epochs: int
+    :param distributed: _description_, defaults to False
+    :type distributed: bool, optional
+    :return: _description_
+    :rtype: _type_
+    """    
     if distributed:
         # Initialize the distributed environment.
         world_size = len(hosts)
@@ -53,7 +66,7 @@ def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distribu
         epoch_number = my_model.load_checkpoint()
 
     if epoch_number == num_epochs:
-    #     num_epochs = 2 * num_epochs
+        num_epochs = 2 * num_epochs
         my_model.load_model()
     return epoch_number
 
@@ -104,20 +117,19 @@ def main():
     test_dir = SM_CHANNEL_TEST
     model_dir = SM_MODEL_DIR
     checkpoint_dir = SM_CHECKPOINT_DIR
-    filtration = None
-    '''filtration = FilterManager(
+    # filtration = None
+    filtration = FilterManager(
         filters=[FilterBlackAndWhite(),
                  FilterHSV(),
-                 FilterFocusMeasure()])'''
+                 FilterFocusMeasure()])
     session = S3SageMakerUtils()
     filtration_cache = 'filtration_cache.h5'
 
     try:
-        session.download_data('.', 'digpath-cache', f'main/{filtration_cache}')
+        session.download_data('.', 'digpath-cache', f'{UNIQUE_IMAGE_IDENTIFIER}/{filtration_cache}')
     except:
         print('Filtration Cache Download from S3 failed!')
-    
-    
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(str(device))
     model = DenseNet(growth_rate=growth_rate,
@@ -132,7 +144,7 @@ def main():
     dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache, label_encoder, distributed=False)
 
     try:
-        session.upload_data(filtration_cache, 'digpath-cache', f'{UNIQUE_IMAGE_IDENTIFIER}/{filtration_cache}')
+        session.upload_data(filtration_cache, 'digpath-cache', f'{UNIQUE_IMAGE_IDENTIFIER}')
     except:
         print('Filtration Cache Upload to S3 failed!')
 
@@ -152,8 +164,8 @@ def main():
 
         # if current loss is the best we've seen, save model state with all variables
         # necessary for recreation
-        if all_loss["val"] < best_loss_on_test:
-            best_loss_on_test = all_loss["val"]
+        if all_loss["train"] < best_loss_on_test:
+            best_loss_on_test = all_loss["train"]
 
             state = {
                 'epoch': epoch + 1,
@@ -169,13 +181,13 @@ def main():
 
             my_model.save_checkpoint(state)
     my_model.save_model()
-    region, _ = dataset['val'][2]
+    region, _ = dataset['train'][2]
     print(my_model.diagnose_region(region, labels))
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--num-epochs', type=int, default=100)
+    parser.add_argument('--num-epochs', type=int, default=10)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--num-classes', type=int, default=3)
     parser.add_argument('--in-channels', type=int, default=3)
