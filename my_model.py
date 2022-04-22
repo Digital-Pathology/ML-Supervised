@@ -57,15 +57,16 @@ class MyModel:
             X = X.to(self.device)
             label = label.type('torch.LongTensor').to(self.device)
             with torch.set_grad_enabled(True):
-                prediction = self.model(X.permute(0, 3, 1,
-                                                  2).float())  # [N, Nclass]
+                prediction = self.model(X.permute(0, 3, 1, 2).float())  # [N, Nclass]
                 loss = self.loss_fn(prediction, label)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                self.all_loss['train'] = torch.cat((self.all_loss['train'], loss.detach().view(1, -1)))
+                # self.all_loss['train'] = torch.cat((self.all_loss['train'], loss.detach().view(1, -1)))
+                self.all_loss['train'] += loss.item()
         self.all_acc['train'] = (self.cmatrix['train'] / (self.cmatrix['train'].sum() + 1e-6)).trace()
-        self.all_loss['train'] = self.all_loss['train'].cpu().numpy().mean()
+        self.all_loss['train'] /= len(data_loader)
+        # self.all_loss['train'] = self.all_loss['train'].cpu().numpy().mean()
 
     def eval(self, data_loader: DataLoader, num_classes: int):
         """Eval"""
@@ -104,11 +105,8 @@ class MyModel:
                         # print('loss_by_file: ', loss_by_file[file_name])
                         cmatrix_by_file[file_name] = np.add(cmatrix_by_file[file_name], confusion_matrix(yflat, cpredflat, labels=range(num_classes)))
                         # print("""###################################################################\n# You survived one more iteration! Good job.\n###################################################################""")
-                        # self.all_loss['val'] = torch.cat(
-                        #     (self.all_loss['val'], loss.detach().view(1, -1)))
-                        # self.cmatrix['val'] = self.cmatrix['val'] + \
-                        #     confusion_matrix(yflat, cpredflat,
-                        #                     labels=range(num_classes))
+                        # self.all_loss['val'] = torch.cat((self.all_loss['val'], loss.detach().view(1, -1)))
+                        # self.cmatrix['val'] = self.cmatrix['val'] + confusion_matrix(yflat, cpredflat, labels=range(num_classes))
 
             self.all_loss['val'] = loss_by_file[file_name] / num_regions
             self.cmatrix['val'] = cmatrix_by_file[file_name] / num_regions
@@ -143,8 +141,8 @@ class MyModel:
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         epoch_number = checkpoint['epoch']
         loss = checkpoint['loss']
-        print("Checkpoint File Loaded - epoch_number: {} - loss: {}".format(epoch_number, loss))
-        print('Resuming training from epoch: {}'.format(epoch_number + 1))
+        print(f'Checkpoint File Loaded - epoch_number: {epoch_number} - loss: {loss}')
+        print(f'Resuming training from epoch: {epoch_number + 1}')
         print("--------------------------------------------")
         return epoch_number
 
@@ -158,8 +156,7 @@ class MyModel:
     def diagnose_region(self, region, labels: dict = None):
         """Diagnose a region"""
         self.model = self.model.to(self.device)
-        region = torch.Tensor(region[None, ::]).permute(
-            0, 3, 1, 2).float().to(self.device)
+        region = torch.Tensor(region[None, ::]).permute(0, 3, 1, 2).float().to(self.device)
         output = self.model(region).to(self.device)
         output = output.detach().squeeze().cpu().numpy()
         pred = np.argmax(output)
