@@ -17,15 +17,29 @@ from utils import label_decoder
 
 class MyModel:
     """
-    Model
+     _summary_
     """
-
     def __init__(self, model: nn.Module, loss_fn: nn.Module, device: str, checkpoint_dir: str, model_dir: str, optimizer: Optimizer):
-        """Init"""
+        """
+        __init__ _summary_
+
+        :param model: _description_
+        :type model: nn.Module
+        :param loss_fn: _description_
+        :type loss_fn: nn.Module
+        :param device: _description_
+        :type device: str
+        :param checkpoint_dir: _description_
+        :type checkpoint_dir: str
+        :param model_dir: _description_
+        :type model_dir: str
+        :param optimizer: _description_
+        :type optimizer: Optimizer
+        """
         self.model = model
         self.loss_fn = loss_fn
         self.device = device
-        phases = ["train", "val"]
+        phases = ["train"]
         num_classes = 3
         self.all_acc = {key: 0 for key in phases}
         self.all_loss = {
@@ -42,18 +56,24 @@ class MyModel:
         self.optimizer = optimizer
 
     def parallel(self, distributed: bool = True):
-        """parallel"""
+        """
+        parallel _summary_
+        """  
         if distributed:
             self.model = DDP(self.model)
         elif torch.cuda.device_count() > 1:
-            print("Gpu count: {}".format(torch.cuda.device_count()))
+            print(f"Gpu count: {torch.cuda.device_count()}")
             self.model = nn.DataParallel(self.model)
 
     def train_model(self, data_loader: DataLoader):
-        """Train Model"""
+        """
+
+        :param data_loader: _description_
+        :type data_loader: DataLoader
+        """
+        self.all_loss['train'] = torch.zeros(0, dtype=torch.float64).to(self.device)
         self.model.train()
         for ii, (X, label) in enumerate(data_loader):
-            # pbar.set_description(f'training_progress_{ii}', refresh=True)
             X = X.to(self.device)
             label = label.type('torch.LongTensor').to(self.device)
             with torch.set_grad_enabled(True):
@@ -62,16 +82,23 @@ class MyModel:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                # self.all_loss['train'] = torch.cat((self.all_loss['train'], loss.detach().view(1, -1)))
-                self.all_loss['train'] += loss.item()
-        self.all_acc['train'] = (self.cmatrix['train'] / (self.cmatrix['train'].sum() + 1e-6)).trace()
-        self.all_loss['train'] /= len(data_loader)
-        # self.all_loss['train'] = self.all_loss['train'].cpu().numpy().mean()
+                self.all_loss['train'] = torch.cat(
+                    (self.all_loss['train'], loss.detach().view(1, -1)))
+        self.all_acc['train'] = (self.cmatrix['train'] /
+                                 (self.cmatrix['train'].sum() + 1e-6)).trace()
+        self.all_loss['train'] = self.all_loss['train'].cpu().numpy().mean()
 
     def eval(self, data_loader: DataLoader, num_classes: int):
-        """Eval"""
-        self.model.eval()
+        """
+        eval _summary_
 
+        :param data_loader: _description_
+        :type data_loader: DataLoader
+        :param num_classes: _description_
+        :type num_classes: int
+        """        
+        self.model.eval()
+        self.all_loss['val'] = 0
         loss_by_file = {}
         cmatrix_by_file = {}
         dataset = data_loader.dataset
@@ -83,30 +110,16 @@ class MyModel:
                 for ii, X in enumerate((pbar := tqdm(batch))):
                     pbar.set_description(f'validation_progress_{ii}', refresh=True)
                     X = torch.tensor(X).to(self.device)
-                    # label = torch.tensor(list(map(int, label))).to(self.device)
                     label = torch.tensor([label]).to(self.device)
                     with torch.no_grad():
-                        # print("""###################################################################\n# Code is broken within this block\n###################################################################""")
                         prediction = self.model(X[None, ...].permute(0, 3, 2, 1).float())  # [N, Nclass]
-                        # print('prediction: ', prediction)
                         loss = self.loss_fn(prediction, label)
-                        # print('loss: ', loss)
                         p = prediction.detach().cpu().numpy()
-                        # print('p: ', p)
                         cpredflat = np.argmax(p, axis=1).flatten()
-                        # print('cpredflat: ', cpredflat)
                         yflat = label.cpu().numpy().flatten()
-                        # print('yflat: ', yflat)
-                        # print("Loss:", loss.shape)
-                        # print("Stored Loss:", loss_by_file[file_name])
                         new_loss = loss_by_file[file_name] + loss.item()
-                        # print('new_loss: ', new_loss)
-                        loss_by_file[file_name] = new_loss #torch.add(loss_by_file[file_name], new_loss)
-                        # print('loss_by_file: ', loss_by_file[file_name])
+                        loss_by_file[file_name] = new_loss 
                         cmatrix_by_file[file_name] = np.add(cmatrix_by_file[file_name], confusion_matrix(yflat, cpredflat, labels=range(num_classes)))
-                        # print("""###################################################################\n# You survived one more iteration! Good job.\n###################################################################""")
-                        # self.all_loss['val'] = torch.cat((self.all_loss['val'], loss.detach().view(1, -1)))
-                        # self.cmatrix['val'] = self.cmatrix['val'] + confusion_matrix(yflat, cpredflat, labels=range(num_classes))
 
             self.all_loss['val'] = loss_by_file[file_name] / num_regions
             self.cmatrix['val'] = cmatrix_by_file[file_name] / num_regions
@@ -114,14 +127,21 @@ class MyModel:
         # self.all_loss['val'] = self.all_loss['val'].cpu().numpy().mean()
 
     def save_model(self):
-        """Save Model"""
+        """
+        save_model _summary_
+        """        
         print("Saving the model.")
         path = os.path.join(self.model_dir, 'model.pth')
         # recommended way from http://pytorch.org/docs/master/notes/serialization.html
         torch.save(self.model.cpu().state_dict(), path)
 
     def save_checkpoint(self, state: dict):
-        """Save Checkpoint"""
+        """
+        save_checkpoint _summary_
+
+        :param state: _description_
+        :type state: dict
+        """        
         path = os.path.join(self.checkpoint_dir, 'checkpoint.pth')
         print("Saving the Checkpoint: {}".format(path))
         torch.save({
@@ -131,7 +151,12 @@ class MyModel:
         }, path)
 
     def load_checkpoint(self):
-        """Load Checkpoint"""
+        """
+        load_checkpoint _summary_
+
+        :return: _description_
+        :rtype: _type_
+        """        
         print("--------------------------------------------")
         print("Checkpoint file found!")
         path = os.path.join(self.checkpoint_dir, 'checkpoint.pth')
@@ -140,21 +165,32 @@ class MyModel:
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         epoch_number = checkpoint['epoch']
-        loss = checkpoint['loss']
-        print(f'Checkpoint File Loaded - epoch_number: {epoch_number} - loss: {loss}')
-        print(f'Resuming training from epoch: {epoch_number + 1}')
+        loss = checkpoint['best_loss_on_test']
+        print("Checkpoint File Loaded - epoch_number: {} - loss: {}".format(epoch_number, loss))
+        print('Resuming training from epoch: {}'.format(epoch_number + 1))
         print("--------------------------------------------")
         return epoch_number
 
     def load_model(self):
-        """Load Model"""
+        """
+        load_model _summary_
+        """        
         path = os.path.join(self.model_dir, 'model.pth')
         checkpoint = torch.load(path)
         self.parallel()
         self.model.load_state_dict(checkpoint)
 
     def diagnose_region(self, region, labels: dict = None):
-        """Diagnose a region"""
+        """
+        diagnose_region _summary_
+
+        :param region: _description_
+        :type region: _type_
+        :param labels: _description_, defaults to None
+        :type labels: dict, optional
+        :return: _description_
+        :rtype: _type_
+        """        
         self.model = self.model.to(self.device)
         region = torch.Tensor(region[None, ::]).permute(0, 3, 1, 2).float().to(self.device)
         output = self.model(region).to(self.device)
@@ -165,7 +201,20 @@ class MyModel:
         return pred
 
     def diagnose_wsi(self, file_path: str, aggregate: Callable, classes: tuple, labels: dict = None):
-        """Diagnose a WSI"""
+        """
+        diagnose_wsi _summary_
+
+        :param file_path: _description_
+        :type file_path: str
+        :param aggregate: _description_
+        :type aggregate: Callable
+        :param classes: _description_
+        :type classes: tuple
+        :param labels: _description_, defaults to None
+        :type labels: dict, optional
+        :return: _description_
+        :rtype: _type_
+        """        
         region_classifications = {}
         for i, region in enumerate(Image(file_path)):
             region = region.to(self.device)
