@@ -79,8 +79,6 @@ class MyModel:
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                print(self.all_loss['train'])
-                print(loss.detach().view(1, -1))
                 self.all_loss['train'] = torch.cat(
                     (self.all_loss['train'], loss.detach().view(1, -1)))
         self.all_acc['train'] = (self.cmatrix['train'] /

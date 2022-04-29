@@ -78,11 +78,11 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
                                    label_postprocessor=label_encoder),
                                filtration=filtration,
                                filtration_cache=filtration_cache)
-    dataset['val'] = Dataset(data_dir=val_dir,
-                             labels=LabelManager(
-                                 val_dir, label_postprocessor=label_encoder),
-                             filtration=filtration,
-                             filtration_cache=filtration_cache)
+    # dataset['val'] = Dataset(data_dir=val_dir,
+    #                          labels=LabelManager(
+    #                              val_dir, label_postprocessor=label_encoder),
+    #                          filtration=filtration,
+    #                          filtration_cache=filtration_cache)
 
     train_sampler, val_sampler = None, None
     if distributed:
@@ -90,10 +90,10 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
             dataset['train'],
             num_replicas=dist.get_world_size(),
             rank=dist.get_rank())
-        val_sampler = DistributedSampler(
-            dataset['val'],
-            num_replicas=dist.get_world_size(),
-            rank=dist.get_rank())
+        # val_sampler = DistributedSampler(
+        #     dataset['val'],
+        #     num_replicas=dist.get_world_size(),
+        #     rank=dist.get_rank())
 
     data_loader['train'] = DataLoader(dataset['train'],
                                      batch_size=batch_size,
@@ -101,12 +101,12 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
                                      sampler=train_sampler,
                                      num_workers=num_workers,
                                      pin_memory=True)
-    data_loader['val'] = DataLoader(dataset['val'],
-                                   batch_size=batch_size,
-                                   shuffle=True,
-                                   sampler=val_sampler,
-                                   num_workers=num_workers,
-                                   pin_memory=True)
+    # data_loader['val'] = DataLoader(dataset['val'],
+    #                                batch_size=batch_size,
+    #                                shuffle=True,
+    #                                sampler=val_sampler,
+    #                                num_workers=num_workers,
+    #                                pin_memory=True)
     return dataset, data_loader
         
 
