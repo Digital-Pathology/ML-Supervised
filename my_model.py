@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Optional
 import torch
 import os
 import numpy as np
@@ -19,6 +19,7 @@ class MyModel:
     """
      _summary_
     """
+
     def __init__(self, model: nn.Module, loss_fn: nn.Module, device: str, checkpoint_dir: str, model_dir: str, optimizer: Optimizer):
         """
         __init__ _summary_
@@ -46,15 +47,16 @@ class MyModel:
             key: torch.zeros(0, dtype=torch.float64).to(device)
             for key in phases
         }
-        self.cmatrix = {key: np.zeros((num_classes, num_classes)) for key in phases}
+        self.cmatrix = {key: np.zeros(
+            (num_classes, num_classes)) for key in phases}
         self.model_dir = model_dir
         self.checkpoint_dir = checkpoint_dir
         self.optimizer = optimizer
 
-    def parallel(self, distributed: bool = True):
+    def parallel(self, distributed: bool = False):
         """
         parallel _summary_
-        """  
+        """
         if distributed:
             self.model = DDP(self.model)
         elif torch.cuda.device_count() > 1:
@@ -67,7 +69,8 @@ class MyModel:
         :param data_loader: _description_
         :type data_loader: DataLoader
         """
-        self.all_loss['train'] = torch.zeros(0, dtype=torch.float64).to(self.device)
+        self.all_loss['train'] = torch.zeros(
+            0, dtype=torch.float64).to(self.device)
         self.model.train()
         for ii, (X, label) in enumerate(data_loader):
             X = X.to(self.device)
@@ -93,9 +96,10 @@ class MyModel:
         :type data_loader: DataLoader
         :param num_classes: _description_
         :type num_classes: int
-        """        
+        """
         self.model.eval()
-        self.all_loss['val'] = torch.zeros(0, dtype=torch.float64).to(self.device)
+        self.all_loss['val'] = torch.zeros(
+            0, dtype=torch.float64).to(self.device)
         for ii, (X, label) in enumerate((pbar := tqdm(data_loader))):
             pbar.set_description(f'validation_progress_{ii}', refresh=True)
             X = X.to(self.device)
@@ -116,12 +120,12 @@ class MyModel:
                                self.cmatrix['val'].sum()).trace()
         self.all_loss['val'] = self.all_loss['val'].cpu().numpy().mean()
 
-    def save_model(self):
+    def save_model(self, filepath: Optional[str] = None):
         """
         save_model _summary_
-        """        
+        """
         print("Saving the model.")
-        path = os.path.join(self.model_dir, 'model.pth')
+        path = filepath or os.path.join(self.model_dir, 'model.pth')
         # recommended way from http://pytorch.org/docs/master/notes/serialization.html
         torch.save(self.model.cpu().state_dict(), path)
 
@@ -131,7 +135,7 @@ class MyModel:
 
         :param state: _description_
         :type state: dict
-        """        
+        """
         path = os.path.join(self.checkpoint_dir, 'checkpoint.pth')
         print("Saving the Checkpoint: {}".format(path))
         torch.save({
@@ -146,7 +150,7 @@ class MyModel:
 
         :return: _description_
         :rtype: _type_
-        """        
+        """
         print("--------------------------------------------")
         print("Checkpoint file found!")
         path = os.path.join(self.checkpoint_dir, 'checkpoint.pth')
@@ -161,11 +165,11 @@ class MyModel:
         print("--------------------------------------------")
         return epoch_number
 
-    def load_model(self):
+    def load_model(self, filepath: Optional[str] = None):
         """
         load_model _summary_
-        """        
-        path = os.path.join(self.model_dir, 'model.pth')
+        """
+        path = filepath or os.path.join(self.model_dir, 'model.pth')
         checkpoint = torch.load(path)
         self.parallel()
         self.model.load_state_dict(checkpoint)
@@ -180,7 +184,7 @@ class MyModel:
         :type labels: dict, optional
         :return: _description_
         :rtype: _type_
-        """        
+        """
         self.model = self.model.to(self.device)
         region = torch.Tensor(region[None, ::]).permute(
             0, 3, 1, 2).float().to(self.device)
@@ -205,7 +209,7 @@ class MyModel:
         :type labels: dict, optional
         :return: _description_
         :rtype: _type_
-        """        
+        """
         region_classifications = {}
         for i, region in enumerate(Image(file_path)):
             region = region.to(self.device)
