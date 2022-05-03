@@ -67,7 +67,7 @@ def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distribu
 
     if epoch_number == num_epochs:
         num_epochs = 2 * num_epochs
-        my_model.load_model()
+        # my_model.load_model()
     return epoch_number
 
 def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False):
