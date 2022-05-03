@@ -1,9 +1,9 @@
 import argparse
 import os
 from tabnanny import check
-
 import numpy as np
 import torch
+from torch.utils.tensorboard import SummaryWriter
 import logging
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
@@ -16,6 +16,7 @@ from torch.utils.data import DataLoader
 from torchvision.models import DenseNet
 from tqdm import tqdm
 import json
+import time
 
 from my_model import MyModel
 from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distributed: bool = False):
+def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False):
     """
     load_model _summary_
 
@@ -32,13 +33,11 @@ def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distribu
     :type checkpoint_dir: str
     :param my_model: _description_
     :type my_model: MyModel
-    :param num_epochs: _description_
-    :type num_epochs: int
     :param distributed: _description_, defaults to False
     :type distributed: bool, optional
     :return: _description_
     :rtype: _type_
-    """    
+    """
     if distributed:
         # Initialize the distributed environment.
         world_size = len(hosts)
@@ -56,7 +55,7 @@ def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distribu
         torch.cuda.set_device(local_rank)
         batch_size //= dist.get_world_size()
         batch_size = max(batch_size, 1)
-        
+
         my_model.parallel(distributed)
 
     if not os.path.isfile(os.path.join(checkpoint_dir, 'checkpoint.pth')):
@@ -65,10 +64,8 @@ def load_model(checkpoint_dir: str, my_model: MyModel, num_epochs: int, distribu
     else:
         epoch_number = my_model.load_checkpoint()
 
-    if epoch_number == num_epochs:
-        num_epochs = 2 * num_epochs
-        # my_model.load_model()
     return epoch_number
+
 
 def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False):
     dataset, data_loader = {}, {}
@@ -96,11 +93,11 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
         #     rank=dist.get_rank())
 
     data_loader['train'] = DataLoader(dataset['train'],
-                                     batch_size=batch_size,
-                                     shuffle=True,
-                                     sampler=train_sampler,
-                                     num_workers=num_workers,
-                                     pin_memory=True)
+                                      batch_size=batch_size,
+                                      shuffle=True,
+                                      sampler=train_sampler,
+                                      num_workers=num_workers,
+                                      pin_memory=True)
     # data_loader['val'] = DataLoader(dataset['val'],
     #                                batch_size=batch_size,
     #                                shuffle=True,
@@ -108,7 +105,20 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
     #                                num_workers=num_workers,
     #                                pin_memory=True)
     return dataset, data_loader
-        
+
+
+def asMinutes(s):
+    m = math.floor(s / 60)
+    s -= m * 60
+    return '%dm %ds' % (m, s)
+
+
+def timeSince(since, percent):
+    now = time.time()
+    s = now - since
+    es = s / (percent+.00001)
+    rs = es - s
+    return '%s (- %s)' % (asMinutes(s), asMinutes(rs))
 
 
 def main():
@@ -117,6 +127,7 @@ def main():
     test_dir = SM_CHANNEL_TEST
     model_dir = SM_MODEL_DIR
     checkpoint_dir = SM_CHECKPOINT_DIR
+    n_epochs = num_epochs
     # filtration = None
     filtration = FilterManager(
         filters=[FilterBlackAndWhite(),
@@ -140,8 +151,12 @@ def main():
                      num_classes=num_classes).to(device)
     optim = Adam(model.parameters())
     labels = {label: idx for idx, label in enumerate(classes)}
-    def label_encoder(x): return labels[os.path.basename(x)]
-    dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache, label_encoder, distributed=False)
+
+    def label_encoder(x):
+        return labels[os.path.basename(x)]
+
+    dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache, label_encoder,
+                                           distributed=False)
 
     try:
         session.upload_data(filtration_cache, 'digpath-cache', f'{UNIQUE_IMAGE_IDENTIFIER}')
@@ -152,15 +167,26 @@ def main():
     best_loss_on_test = np.Infinity
 
     my_model = MyModel(model, criterion, device, checkpoint_dir, model_dir, optim)
-    epoch_number = load_model(checkpoint_dir, my_model, num_epochs, distributed=False)
+    epoch_number = load_model(checkpoint_dir, my_model, distributed=False)
+    if epoch_number == n_epochs:
+        n_epochs *= 2
 
-    for epoch in (pbar := tqdm(range(epoch_number, num_epochs))):
+    start_time = time.time()
+    writer = SummaryWriter('/opt/ml/output/tensorboard/')
+    for epoch in (pbar := tqdm(range(epoch_number, n_epochs))):
         pbar.set_description(f'epoch_progress_{epoch}', refresh=True)
 
         my_model.train_model(data_loader['train'])
         # my_model.eval(data_loader['val'], num_classes)
 
         all_loss = my_model.all_loss
+        writer.add_scalar(f'train/loss', all_loss["train"], epoch_number)
+        writer.add_scalar(f'train/acc', my_model.all_acc["train"], epoch_number)
+        for r in range(num_classes):
+            for c in range(num_classes): #essentially write out confusion matrix
+                writer.add_scalar(f'train/{r}{c}', cmatrix["train"][r][c], epoch_number)
+        print('%s ([%d/%d] %d%%), train loss: %.4f test loss: %.4f' % (timeSince(start_time, (epoch_number + 1) / num_epochs), 
+                                                 epoch_number + 1, num_epochs, (epoch_number + 1) / num_epochs * 100, all_loss["train"]), end="")
 
         # if current loss is the best we've seen, save model state with all variables
         # necessary for recreation
@@ -209,7 +235,6 @@ if __name__ == "__main__":
                         default=os.environ['SM_CURRENT_HOST'])
     parser.add_argument('--num-gpus', type=int, default=os.environ['SM_NUM_GPUS'])
 
-
     args = vars(parser.parse_args())
     dataname = "digpath_supervised"
     SM_CHANNEL_TRAIN = os.getenv('SM_CHANNEL_TRAIN')
@@ -217,6 +242,7 @@ if __name__ == "__main__":
     SM_MODEL_DIR = os.getenv('SM_MODEL_DIR')
     SM_CHECKPOINT_DIR = os.getenv('SM_CHECKPOINT_DIR')
     UNIQUE_IMAGE_IDENTIFIER = os.getenv('UNIQUE_IMAGE_IDENTIFIER')
+    
 
     # number of classes in the data mask that we'll aim to predict
     num_classes = args['num_classes']
