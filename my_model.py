@@ -51,7 +51,7 @@ class MyModel:
         self.checkpoint_dir = checkpoint_dir
         self.optimizer = optimizer
 
-    def parallel(self, distributed: bool = True):
+    def parallel(self, distributed: bool = False):
         """
         parallel _summary_
         """  

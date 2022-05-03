@@ -184,7 +184,7 @@ def main():
         writer.add_scalar(f'train/acc', my_model.all_acc["train"], epoch_number)
         for r in range(num_classes):
             for c in range(num_classes): #essentially write out confusion matrix
-                writer.add_scalar(f'train/{r}{c}', cmatrix["train"][r][c], epoch_number)
+                writer.add_scalar(f'train/{r}{c}', my_model.cmatrix["train"][r][c], epoch_number)
         print('%s ([%d/%d] %d%%), train loss: %.4f test loss: %.4f' % (timeSince(start_time, (epoch_number + 1) / num_epochs), 
                                                  epoch_number + 1, num_epochs, (epoch_number + 1) / num_epochs * 100, all_loss["train"]), end="")
 
