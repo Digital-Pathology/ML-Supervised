@@ -11,7 +11,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from sklearn.metrics import confusion_matrix
 
 from unified_image_reader import Image
-from model_manager.util import iterate_by_n
 from utils import label_decoder
 
 

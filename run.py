@@ -12,11 +12,12 @@ from filtration import (FilterBlackAndWhite, FilterFocusMeasure, FilterHSV,
                         FilterManager)
 from torch import nn
 from torch.optim import Adam
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision.models import DenseNet
 from tqdm import tqdm
 import json
 import time
+import numpy as np
 
 from my_model import MyModel
 from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
@@ -91,6 +92,11 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
         #     dataset['val'],
         #     num_replicas=dist.get_world_size(),
         #     rank=dist.get_rank())
+    else:
+        class_sample_count = np.array(list(dataset['train'].get_label_distribution().values()))
+        weight = 1 / class_sample_count
+        samples_weight = torch.from_numpy(weight).double()
+        train_sampler = WeightedRandomSampler(samples_weight, len(samples_weight))
 
     data_loader['train'] = DataLoader(dataset['train'],
                                       batch_size=batch_size,
@@ -185,7 +191,7 @@ def main():
         for r in range(num_classes):
             for c in range(num_classes): #essentially write out confusion matrix
                 writer.add_scalar(f'train/{r}{c}', my_model.cmatrix["train"][r][c], epoch_number)
-        print('%s ([%d/%d] %d%%), train loss: %.4f test loss: %.4f' % (timeSince(start_time, (epoch_number + 1) / num_epochs), 
+        print('%s ([%d/%d] %d%%), train loss: %.4f' % (timeSince(start_time, (epoch_number + 1) / num_epochs), 
                                                  epoch_number + 1, num_epochs, (epoch_number + 1) / num_epochs * 100, all_loss["train"]), end="")
 
         # if current loss is the best we've seen, save model state with all variables
