@@ -5,7 +5,6 @@ from tabnanny import check
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
-import logging
 import torch.distributed as dist
 from torch.utils.data.distributed import DistributedSampler
 from dataset import Dataset, LabelManager
@@ -22,9 +21,6 @@ import numpy as np
 
 from my_model import MyModel
 from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 
 def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False):
