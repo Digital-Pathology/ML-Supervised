@@ -90,10 +90,12 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
         #     num_replicas=dist.get_world_size(),
         #     rank=dist.get_rank())
     else:
-        class_sample_count = np.array(list(dataset['train'].get_label_distribution().values()))
+        class_sample_count = np.array(
+            list(dataset['train'].get_label_distribution().values()))
         weight = 1 / class_sample_count
         samples_weight = torch.from_numpy(weight).double()
-        train_sampler = WeightedRandomSampler(samples_weight, len(samples_weight))
+        train_sampler = WeightedRandomSampler(
+            samples_weight, len(samples_weight))
 
     data_loader['train'] = DataLoader(dataset['train'],
                                       batch_size=batch_size,
@@ -140,7 +142,8 @@ def main():
     filtration_cache = 'filtration_cache.h5'
 
     try:
-        session.download_data('.', 'digpath-cache', f'{UNIQUE_IMAGE_IDENTIFIER}/{filtration_cache}')
+        session.download_data('.', 'digpath-cache',
+                              f'{UNIQUE_IMAGE_IDENTIFIER}/{filtration_cache}')
     except:
         print('Filtration Cache Download from S3 failed!')
 
@@ -162,14 +165,16 @@ def main():
                                            distributed=False)
 
     try:
-        session.upload_data(filtration_cache, 'digpath-cache', f'{UNIQUE_IMAGE_IDENTIFIER}')
+        session.upload_data(filtration_cache, 'digpath-cache',
+                            f'{UNIQUE_IMAGE_IDENTIFIER}')
     except:
         print('Filtration Cache Upload to S3 failed!')
 
     criterion = nn.CrossEntropyLoss().to(device)
     best_loss_on_test = np.Infinity
 
-    my_model = MyModel(model, criterion, device, checkpoint_dir, model_dir, optim)
+    my_model = MyModel(model, criterion, device,
+                       checkpoint_dir, model_dir, optim)
     epoch_number = load_model(checkpoint_dir, my_model, distributed=False)
     if epoch_number == n_epochs:
         n_epochs *= 2
@@ -184,12 +189,14 @@ def main():
 
         all_loss = my_model.all_loss
         writer.add_scalar(f'train/loss', all_loss["train"], epoch_number)
-        writer.add_scalar(f'train/acc', my_model.all_acc["train"], epoch_number)
+        writer.add_scalar(
+            f'train/acc', my_model.all_acc["train"], epoch_number)
         for r in range(num_classes):
-            for c in range(num_classes): #essentially write out confusion matrix
-                writer.add_scalar(f'train/{r}{c}', my_model.cmatrix["train"][r][c], epoch_number)
-        print('%s ([%d/%d] %d%%), train loss: %.4f' % (timeSince(start_time, (epoch_number + 1) / num_epochs), 
-                                                 epoch_number + 1, num_epochs, (epoch_number + 1) / num_epochs * 100, all_loss["train"]), end="")
+            for c in range(num_classes):  # essentially write out confusion matrix
+                writer.add_scalar(
+                    f'train/{r}{c}', my_model.cmatrix["train"][r][c], epoch_number)
+        print('%s ([%d/%d] %d%%), train loss: %.4f' % (timeSince(start_time, (epoch_number + 1) / num_epochs),
+                                                       epoch_number + 1, num_epochs, (epoch_number + 1) / num_epochs * 100, all_loss["train"]), end="")
 
         # if current loss is the best we've seen, save model state with all variables
         # necessary for recreation
@@ -236,7 +243,8 @@ if __name__ == "__main__":
                         default=json.loads(os.environ['SM_HOSTS']))
     parser.add_argument('--current-host', type=str,
                         default=os.environ['SM_CURRENT_HOST'])
-    parser.add_argument('--num-gpus', type=int, default=os.environ['SM_NUM_GPUS'])
+    parser.add_argument('--num-gpus', type=int,
+                        default=os.environ['SM_NUM_GPUS'])
 
     args = vars(parser.parse_args())
     dataname = "digpath_supervised"
@@ -245,7 +253,6 @@ if __name__ == "__main__":
     SM_MODEL_DIR = os.getenv('SM_MODEL_DIR')
     SM_CHECKPOINT_DIR = os.getenv('SM_CHECKPOINT_DIR')
     UNIQUE_IMAGE_IDENTIFIER = os.getenv('UNIQUE_IMAGE_IDENTIFIER')
-    
 
     # number of classes in the data mask that we'll aim to predict
     num_classes = args['num_classes']

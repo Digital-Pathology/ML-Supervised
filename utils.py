@@ -8,7 +8,7 @@ def label_decoder(labels: dict, x: int):
     :type x: int
     :return: _description_
     :rtype: _type_
-    """    
+    """
     return list(labels.keys())[list(labels.values()).index(x)]
 
 
@@ -22,7 +22,7 @@ def plurality_vote(region_classifications: dict, classes: tuple):
     :type classes: tuple
     :return: _description_
     :rtype: _type_
-    """    
+    """
     votes = {c: 0 for c in classes}
     for c in region_classifications.values():
         votes[c] += 1
