@@ -99,7 +99,6 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
 
     data_loader['train'] = DataLoader(dataset['train'],
                                       batch_size=batch_size,
-                                      shuffle=True,
                                       sampler=train_sampler,
                                       num_workers=num_workers,
                                       pin_memory=True)
