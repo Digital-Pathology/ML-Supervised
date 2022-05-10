@@ -64,15 +64,6 @@ def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False
     return epoch_number
 
 
-def get_region_labels(dataset):
-    region_labels = []
-    for filename in dataset._filepaths:
-        label = dataset.get_label(filename)  # should be 0, 1, or 2
-        regions_in_filename = dataset.number_of_regions(filename)
-        region_labels.extend([label] * regions_in_filename)
-    return region_labels
-
-
 def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False):
     dataset, data_loader = {}, {}
     dataset['train'] = Dataset(data_dir=train_dir,
@@ -100,7 +91,7 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
             num_replicas=dist.get_world_size(),
             rank=dist.get_rank())
     else:
-        y_train = get_region_labels(dataset['train'])
+        y_train = dataset['train'].get_region_labels_as_list()
         class_sample_count = np.array(
             list(dataset['train'].get_label_distribution().values()))
         weight = 1 / (class_sample_count + 1e-6)  # in case no values, no div_0
