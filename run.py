@@ -17,7 +17,6 @@ from torchvision.models import DenseNet
 from tqdm import tqdm
 import json
 import time
-import numpy as np
 
 from my_model import MyModel
 from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
@@ -25,16 +24,16 @@ from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
 
 def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False):
     """
-    load_model _summary_
+    load_model Loads the model using a checkpoint dir if necessary
 
-    :param checkpoint_dir: _description_
+    :param checkpoint_dir: Filepath to checkpoint directory for mid train saving
     :type checkpoint_dir: str
-    :param my_model: _description_
+    :param my_model: MyModel class hosting the PyTorch model
     :type my_model: MyModel
-    :param distributed: _description_, defaults to False
+    :param distributed: Determines if distributed learning is occurring, defaults to False
     :type distributed: bool, optional
-    :return: _description_
-    :rtype: _type_
+    :return: Returns the epoch number at which the checkpoint has saved, or double the output model.
+    :rtype: int
     """
     if distributed:
         # Initialize the distributed environment.
@@ -74,8 +73,7 @@ def get_region_labels(dataset):
     return region_labels
 
 
-def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False):
-    """hello"""
+def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False):
     dataset, data_loader = {}, {}
     dataset['train'] = Dataset(data_dir=train_dir,
                                labels=LabelManager(
@@ -83,11 +81,12 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
                                    label_postprocessor=label_encoder),
                                filtration=filtration,
                                filtration_cache=filtration_cache)
-    # dataset['val'] = Dataset(data_dir=val_dir,
-    #                          labels=LabelManager(
-    #                              val_dir, label_postprocessor=label_encoder),
-    #                          filtration=filtration,
-    #                          filtration_cache=filtration_cache)
+    if val:
+        dataset['val'] = Dataset(data_dir=val_dir,
+                                 labels=LabelManager(
+                                     val_dir, label_postprocessor=label_encoder),
+                                 filtration=filtration,
+                                 filtration_cache=filtration_cache)
 
     train_sampler, val_sampler = None, None
     if distributed:
@@ -95,10 +94,11 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
             dataset['train'],
             num_replicas=dist.get_world_size(),
             rank=dist.get_rank())
-        # val_sampler = DistributedSampler(
-        #     dataset['val'],
-        #     num_replicas=dist.get_world_size(),
-        #     rank=dist.get_rank())
+    if val:
+        val_sampler = DistributedSampler(
+            dataset['val'],
+            num_replicas=dist.get_world_size(),
+            rank=dist.get_rank())
     else:
         y_train = get_region_labels(dataset['train'])
         class_sample_count = np.array(
@@ -114,12 +114,13 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
                                       sampler=train_sampler,
                                       num_workers=num_workers,
                                       pin_memory=True)
-    # data_loader['val'] = DataLoader(dataset['val'],
-    #                                batch_size=batch_size,
-    #                                shuffle=True,
-    #                                sampler=val_sampler,
-    #                                num_workers=num_workers,
-    #                                pin_memory=True)
+    if val:
+        data_loader['val'] = DataLoader(dataset['val'],
+                                       batch_size=batch_size,
+                                       shuffle=True,
+                                       sampler=val_sampler,
+                                       num_workers=num_workers,
+                                       pin_memory=True)
     return dataset, data_loader
 
 
@@ -173,7 +174,7 @@ def main():
         return labels[os.path.basename(x)]
 
     dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache, label_encoder,
-                                           distributed=False)
+                                           distributed=False, val=False)
 
     try:
         session.upload_data(filtration_cache, 'digpath-cache',
