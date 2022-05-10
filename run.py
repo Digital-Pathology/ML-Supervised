@@ -68,7 +68,7 @@ def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False
 def get_region_labels(dataset):
     region_labels = []
     for filename in dataset._filepaths:
-        label = dataset.get_label(filename) # should be 0, 1, or 2
+        label = dataset.get_label(filename)  # should be 0, 1, or 2
         regions_in_filename = dataset.number_of_regions(filename)
         region_labels.extend([label] * regions_in_filename)
     return region_labels
@@ -103,8 +103,9 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
         y_train = get_region_labels(dataset['train'])
         class_sample_count = np.array(
             list(dataset['train'].get_label_distribution().values()))
-        weight = 1 / (class_sample_count + 1e-6) # in case no values, no div_0
-        samples_weight = torch.from_numpy(np.array([weight[t] for t in y_train])).double()
+        weight = 1 / (class_sample_count + 1e-6)  # in case no values, no div_0
+        samples_weight = torch.from_numpy(
+            np.array([weight[t] for t in y_train])).double()
         train_sampler = WeightedRandomSampler(
             samples_weight, len(samples_weight))
 
