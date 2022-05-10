@@ -1,27 +1,27 @@
 def label_decoder(labels: dict, x: int):
     """
-    label_decoder _summary_
+    label_decoder Performs a decoding from int to label
 
-    :param labels: _description_
+    :param labels: A dictionary of labels and its respective integer representation
     :type labels: dict
-    :param x: _description_
+    :param x: The integer we wish to convert
     :type x: int
-    :return: _description_
-    :rtype: _type_
+    :return: Returns the label associated with the integer representation
+    :rtype: Any
     """
     return list(labels.keys())[list(labels.values()).index(x)]
 
 
 def plurality_vote(region_classifications: dict, classes: tuple):
     """
-    plurality_vote _summary_
+    plurality_vote Performs a plurality vote to determine overall accuracy based on class distribution
 
-    :param region_classifications: _description_
+    :param region_classifications: Key value pairs of each region and its respective classification
     :type region_classifications: dict
-    :param classes: _description_
+    :param classes: A tuple of labels or classes that were used for training
     :type classes: tuple
-    :return: _description_
-    :rtype: _type_
+    :return: Returns the label or class with the highest vote
+    :rtype: Any
     """
     votes = {c: 0 for c in classes}
     for c in region_classifications.values():
