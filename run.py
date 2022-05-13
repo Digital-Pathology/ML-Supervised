@@ -20,6 +20,7 @@ import time
 
 from my_model import MyModel
 from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
+from tile_dataset import TilesDataset
 
 
 def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False):
@@ -64,7 +65,7 @@ def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False
     return epoch_number
 
 
-def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False):
+def initialize_data(train_dir: str, val_dir, score_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False, tiled=False):
     dataset, data_loader = {}, {}
     dataset['train'] = Dataset(data_dir=train_dir,
                                labels=LabelManager(
@@ -72,12 +73,17 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
                                    label_postprocessor=label_encoder),
                                filtration=filtration,
                                filtration_cache=filtration_cache)
+    if tiled:
+        dataset['train'] = TilesDataset(dataset['train'], score_dir)
+    
     if val:
         dataset['val'] = Dataset(data_dir=val_dir,
                                  labels=LabelManager(
                                      val_dir, label_postprocessor=label_encoder),
                                  filtration=filtration,
                                  filtration_cache=filtration_cache)
+        if tiled:
+            dataset['val'] = TilesDataset(dataset['val'], None) # placeholder
 
     train_sampler, val_sampler = None, None
     if distributed:
@@ -135,6 +141,7 @@ def main():
     test_dir = SM_CHANNEL_TEST
     model_dir = SM_MODEL_DIR
     checkpoint_dir = SM_CHECKPOINT_DIR
+    score_path = SM_SCORE_PATH
     n_epochs = num_epochs
     # filtration = None
     filtration = FilterManager(
@@ -164,8 +171,8 @@ def main():
     def label_encoder(x):
         return labels[os.path.basename(x)]
 
-    dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache, label_encoder,
-                                           distributed=False, val=False)
+    dataset, data_loader = initialize_data(train_dir, test_dir, score_path, filtration, filtration_cache,
+                                           label_encoder, distributed=False, val=False, tiled=True)
 
     try:
         session.upload_data(filtration_cache, 'digpath-cache',
@@ -256,6 +263,7 @@ if __name__ == "__main__":
     SM_MODEL_DIR = os.getenv('SM_MODEL_DIR')
     SM_CHECKPOINT_DIR = os.getenv('SM_CHECKPOINT_DIR')
     UNIQUE_IMAGE_IDENTIFIER = os.getenv('UNIQUE_IMAGE_IDENTIFIER')
+    SM_SCORE_PATH = os.getenv('SM_SCORE_PATH')
 
     # number of classes in the data mask that we'll aim to predict
     num_classes = args['num_classes']
