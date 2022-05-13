@@ -44,7 +44,7 @@ class TilesDataset(torch.utils.data.Dataset):
         region_index = self.scoring_data[region_filename][region_index][1]
         region = self.underlying_dataset.get_region(
             region_filename, region_index)
-        return region
+        return region, self.underlying_dataset.get_label(region_filename)
 
     def get_region_labels_as_list(self):
         region_labels = []
