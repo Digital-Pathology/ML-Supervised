@@ -67,23 +67,24 @@ def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False
 
 def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False, tiled=False):
     dataset, data_loader = {}, {}
-    dataset['train'] = Dataset(data_dir=train_dir,
+    dataset['train'] = Dataset(data=train_dir,
                                labels=LabelManager(
                                    train_dir,
                                    label_postprocessor=label_encoder),
                                filtration=filtration,
                                filtration_cache=filtration_cache)
     if tiled:
-        dataset['train'] = TilesDataset(dataset['train'], '/opt/ml/scoring_data.json')
-    
+        dataset['train'] = TilesDataset(
+            dataset['train'], '/opt/ml/scoring_data.json')
+
     if val:
-        dataset['val'] = Dataset(data_dir=val_dir,
+        dataset['val'] = Dataset(data=val_dir,
                                  labels=LabelManager(
                                      val_dir, label_postprocessor=label_encoder),
                                  filtration=filtration,
                                  filtration_cache=filtration_cache)
         if tiled:
-            dataset['val'] = TilesDataset(dataset['val'], None) # placeholder
+            dataset['val'] = TilesDataset(dataset['val'], None)  # placeholder
 
     train_sampler, val_sampler = None, None
     if distributed:
@@ -113,11 +114,11 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
                                       pin_memory=True)
     if val:
         data_loader['val'] = DataLoader(dataset['val'],
-                                       batch_size=batch_size,
-                                       shuffle=True,
-                                       sampler=val_sampler,
-                                       num_workers=num_workers,
-                                       pin_memory=True)
+                                        batch_size=batch_size,
+                                        shuffle=True,
+                                        sampler=val_sampler,
+                                        num_workers=num_workers,
+                                        pin_memory=True)
     return dataset, data_loader
 
 
@@ -171,7 +172,8 @@ def main():
         return labels[os.path.basename(x)]
 
     try:
-        session.download_data('/opt/ml/', 'digpath-tilescore', 'scoring_data.json')
+        session.download_data(
+            '/opt/ml/', 'digpath-tilescore', 'scoring_data.json')
     except:
         print('No tiles')
 
