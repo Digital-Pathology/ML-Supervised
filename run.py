@@ -64,7 +64,7 @@ def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False
     return epoch_number
 
 
-def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False):
+def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False, tiled=False, augmentation=False):
     dataset, data_loader = {}, {}
     dataset['train'] = Dataset(data_dir=train_dir,
                                labels=LabelManager(
