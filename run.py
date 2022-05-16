@@ -196,8 +196,8 @@ def main():
     my_model = MyModel(model, criterion, device,
                        checkpoint_dir, model_dir, optim)
     epoch_number = load_model(checkpoint_dir, my_model, distributed=False)
-    if epoch_number == n_epochs:
-        n_epochs *= 2
+    if epoch_number >= n_epochs:
+        n_epochs += 10
 
     start_time = time.time()
     writer = SummaryWriter('/opt/ml/output/tensorboard/')
