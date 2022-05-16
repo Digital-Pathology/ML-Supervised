@@ -73,7 +73,9 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
                                    train_dir,
                                    label_postprocessor=label_encoder),
                                filtration=filtration,
-                               filtration_cache=filtration_cache)
+                               filtration_cache=filtration_cache,
+                               filtration_preprocess_loadingbars=True)  # ,
+    # augmentation=lambda region: torch.Tensor(region[None, ::]).permute(0, 3, 1, 2).float())
     if tiled:
         dataset['train'] = TilesDataset(
             dataset['train'], '/opt/ml/scoring_data.json')
@@ -154,7 +156,7 @@ def main():
 
     try:
         session.download_data('.', 'digpath-cache',
-                              f'{UNIQUE_IMAGE_IDENTIFIER}/{filtration_cache}')
+                              f'kevin_supervised/{filtration_cache}')
     except:
         print('Filtration Cache Download from S3 failed!')
 
@@ -175,7 +177,7 @@ def main():
 
     try:
         session.download_data(
-            '/opt/ml/', 'digpath-tilescore', 'scoring_data.json')
+            '/opt/ml/', 'digpath-tilescore', 'digpath-data-new/scoring_data.json')
     except:
         print('No tiles')
 

@@ -311,11 +311,12 @@ if __name__ == '__main__':
         filtration_preprocess_loadingbars=True
     )
 
-    region, label = dataset[0]
+    region, label = dataset[0]  # region is np.ndarray(shape=(512,512,3))
 
+    print(type(region), region.shape)
     region = torch.Tensor(region[None, ::]).permute(
         0, 3, 1, 2).float()
-    #region = torchvision.transforms.Resize((512, 512))(region)
+    print(type(region), region.shape)
 
     out = net(region)
     print(out)
