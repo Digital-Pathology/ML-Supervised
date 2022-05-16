@@ -5,18 +5,21 @@ import torch
 
 from dataset import Dataset
 
-import utils
+from . import util
+
+# TODO - inherit from custom dataset
 
 
 class TilesDataset(torch.utils.data.Dataset):
-    def __init__(self, underlying_dataset, scoring_data_filepath):
+    def __init__(self, underlying_dataset, scoring_data_filepath, top_n=100):
         if not isinstance(underlying_dataset, Dataset):
             raise TypeError(type(underlying_dataset))
         self.underlying_dataset = underlying_dataset
         self.scoring_data_filepath = scoring_data_filepath
+        self.top_n = top_n
         # load in scoring data
         self.scoring_data = None
-        with utils.open_file(self.scoring_data_filepath) as f:
+        with util.open_file(self.scoring_data_filepath) as f:
             self.scoring_data = json.load(f)
         self._filepaths = list(self.scoring_data.keys())
         # preprocess from fields and verify that scoring data files are in dataset
@@ -24,8 +27,8 @@ class TilesDataset(torch.utils.data.Dataset):
         for filepath in self.scoring_data.keys():  # for each filepath in the tilesdataset
             if filepath not in self.underlying_dataset._region_counts:  # if filepath isn't in underlying dataset
                 raise Exception(f"filepath not in dataset: {filepath}")
-            self._passing_region_counts[filepath] = len(
-                self.scoring_data[filepath])  # otherwise record length
+            self._passing_region_counts[filepath] = min(top_n, len(
+                self.scoring_data[filepath]))  # otherwise record length
         self._len = sum(self._passing_region_counts.values())
 
     def __len__(self):
@@ -44,7 +47,7 @@ class TilesDataset(torch.utils.data.Dataset):
         region_index = self.scoring_data[region_filename][region_index][1]
         region = self.underlying_dataset.get_region(
             region_filename, region_index)
-        return region
+        return region, self.underlying_dataset.get_label(region_filename)
 
     def get_region_labels_as_list(self):
         region_labels = []
@@ -61,3 +64,33 @@ class TilesDataset(torch.utils.data.Dataset):
                 label_distribution[label] = 0
             label_distribution[label] += 1
         return label_distribution
+
+    def iterate_by_file(self, as_pytorch_datasets=False):
+        if not as_pytorch_datasets:
+            def regions_generator(filename: str):
+                for i in range(self.number_of_regions(filename)):
+                    yield self.underlying_dataset.get_region(filename, i)
+            for filename in self._filepaths:
+                yield filename, self.get_label(filename), regions_generator(filename)
+        else:
+            class SingleFileDataset(torch.utils.data.Dataset):
+                def __init__(self, base_dataset, filename) -> None:
+                    self.base_dataset = base_dataset
+                    self.filename = filename
+
+                def __getitem__(self, index):
+                    return self.base_dataset.underlying_dataset.get_region(self.filename, index)
+
+                def __len__(self):
+                    return self.base_dataset.number_of_regions(self.filename)
+            for filename in self._filepaths:
+                yield filename, self.get_label(filename), SingleFileDataset(base_dataset=self, filename=filename)
+
+    def get_label(self, filename):
+        return self.underlying_dataset.get_label(filename)
+
+    def number_of_regions(self, filename=None):
+        if filename is None:
+            return len(self)
+        else:
+            return self._passing_region_counts[filename]
