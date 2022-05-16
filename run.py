@@ -21,6 +21,7 @@ import time
 from my_model import MyModel
 from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
 from pytorch_models.coatnet import coatnet_0
+from tiling.tile_dataset import TilesDataset
 
 
 def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False):
@@ -65,20 +66,26 @@ def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False
     return epoch_number
 
 
-def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False):
+def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False, tiled=False):
     dataset, data_loader = {}, {}
-    dataset['train'] = Dataset(data_dir=train_dir,
+    dataset['train'] = Dataset(data=train_dir,
                                labels=LabelManager(
                                    train_dir,
                                    label_postprocessor=label_encoder),
                                filtration=filtration,
                                filtration_cache=filtration_cache)
+    if tiled:
+        dataset['train'] = TilesDataset(
+            dataset['train'], '/opt/ml/scoring_data.json')
+
     if val:
-        dataset['val'] = Dataset(data_dir=val_dir,
+        dataset['val'] = Dataset(data=val_dir,
                                  labels=LabelManager(
                                      val_dir, label_postprocessor=label_encoder),
                                  filtration=filtration,
                                  filtration_cache=filtration_cache)
+        if tiled:
+            dataset['val'] = TilesDataset(dataset['val'], None)  # placeholder
 
     train_sampler, val_sampler = None, None
     if distributed:
@@ -166,8 +173,14 @@ def main():
     def label_encoder(x):
         return labels[os.path.basename(x)]
 
-    dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache, label_encoder,
-                                           distributed=False, val=False)
+    try:
+        session.download_data(
+            '/opt/ml/', 'digpath-tilescore', 'scoring_data.json')
+    except:
+        print('No tiles')
+
+    dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache,
+                                           label_encoder, distributed=False, val=False, tiled=True)
 
     try:
         session.upload_data(filtration_cache, 'digpath-cache',
