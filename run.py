@@ -14,9 +14,11 @@ from torch import nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision.models import DenseNet
+from torchvision import transforms
 from tqdm import tqdm
 import json
 import time
+from tiling.tile_dataset import TilesDataset
 
 from my_model import MyModel
 from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
@@ -66,29 +68,31 @@ def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False
     return epoch_number
 
 
-def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False, tiled=False):
+def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False, tiled=False, augmentation=False):
     dataset, data_loader = {}, {}
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.RandomVerticalFlip(),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation((0, 359))
+    ])
     dataset['train'] = Dataset(data=train_dir,
                                labels=LabelManager(
                                    train_dir,
                                    label_postprocessor=label_encoder),
                                filtration=filtration,
                                filtration_cache=filtration_cache,
-                               filtration_preprocess_loadingbars=True)  # ,
-    # augmentation=lambda region: torch.Tensor(region[None, ::]).permute(0, 3, 1, 2).float())
-    if tiled:
-        dataset['train'] = TilesDataset(
-            dataset['train'], '/opt/ml/scoring_data.json')
-
+                               augmentation=transform if augmentation else None)
     if val:
         dataset['val'] = Dataset(data=val_dir,
                                  labels=LabelManager(
                                      val_dir, label_postprocessor=label_encoder),
                                  filtration=filtration,
                                  filtration_cache=filtration_cache)
-        if tiled:
-            dataset['val'] = TilesDataset(dataset['val'], None)  # placeholder
 
+    if tiled:
+        dataset['train'] = TilesDataset(
+            dataset['train'], '/opt/ml/scoring_data.json')
     train_sampler, val_sampler = None, None
     if distributed:
         train_sampler = DistributedSampler(
@@ -181,8 +185,8 @@ def main():
     except:
         print('No tiles')
 
-    dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache,
-                                           label_encoder, distributed=False, val=False, tiled=True)
+    dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache, label_encoder,
+                                           distributed=False, val=False, augmentation=True)
 
     try:
         session.upload_data(filtration_cache, 'digpath-cache',
