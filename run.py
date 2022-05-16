@@ -20,6 +20,7 @@ import time
 
 from my_model import MyModel
 from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
+from pytorch_models.coatnet import coatnet_0
 
 
 def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False):
@@ -107,11 +108,11 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
                                       pin_memory=True)
     if val:
         data_loader['val'] = DataLoader(dataset['val'],
-                                       batch_size=batch_size,
-                                       shuffle=True,
-                                       sampler=val_sampler,
-                                       num_workers=num_workers,
-                                       pin_memory=True)
+                                        batch_size=batch_size,
+                                        shuffle=True,
+                                        sampler=val_sampler,
+                                        num_workers=num_workers,
+                                        pin_memory=True)
     return dataset, data_loader
 
 
@@ -152,12 +153,13 @@ def main():
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(str(device))
-    model = DenseNet(growth_rate=growth_rate,
-                     block_config=block_config,
-                     num_init_features=num_init_features,
-                     bn_size=bn_size,
-                     drop_rate=drop_rate,
-                     num_classes=num_classes).to(device)
+    # model = DenseNet(growth_rate=growth_rate,
+    #                 block_config=block_config,
+    #                 num_init_features=num_init_features,
+    #                 bn_size=bn_size,
+    #                 drop_rate=drop_rate,
+    #                 num_classes=num_classes).to(device)
+    model = coatnet_0().to(device)
     optim = Adam(model.parameters())
     labels = {label: idx for idx, label in enumerate(classes)}
 
