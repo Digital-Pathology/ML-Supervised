@@ -70,19 +70,14 @@ def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False
 
 def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False, tiled=False, augmentation=False):
     dataset, data_loader = {}, {}
-    transform = transforms.Compose([
-        transforms.ToTensor(),
-        transforms.RandomVerticalFlip(),
-        transforms.RandomHorizontalFlip(),
-        transforms.RandomRotation((0, 359))
-    ])
     dataset['train'] = Dataset(data=train_dir,
                                labels=LabelManager(
                                    train_dir,
                                    label_postprocessor=label_encoder),
                                filtration=filtration,
                                filtration_cache=filtration_cache,
-                               augmentation=transform if augmentation else None)
+                               augmentation=lambda region: torch.Tensor(region[None, ::]).permute(
+                                   0, 3, 1, 2).float())
     if val:
         dataset['val'] = Dataset(data=val_dir,
                                  labels=LabelManager(
