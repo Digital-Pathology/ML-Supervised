@@ -1,3 +1,7 @@
+
+import os
+
+
 def label_decoder(labels: dict, x: int):
     """
     label_decoder Performs a decoding from int to label
@@ -28,3 +32,11 @@ def plurality_vote(region_classifications: dict, classes: tuple):
         votes[c] += 1
 
     return votes[max(votes, key=votes.get)]
+
+
+def open_file(filepath, mode='r', binary_mode=False):
+    if mode in ['w', 'x']:
+        mode = 'w' if os.path.exists(filepath) else 'x'
+    if binary_mode:
+        mode += 'b'
+    return open(filepath, mode)

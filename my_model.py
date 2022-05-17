@@ -55,8 +55,8 @@ class MyModel:
     def parallel(self, distributed: bool = False):
         """
         parallel Prepares model for distributed learning
-        :param distributed: Determines if distributed learning is occurring
-        :type distributed: bool
+        :param distributed: Determines if distributed learning is occurring, defaults to False
+        :type distributed: bool, optional
         """
         if distributed:
             self.model = DDP(self.model)

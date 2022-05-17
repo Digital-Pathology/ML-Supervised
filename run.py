@@ -14,10 +14,11 @@ from torch import nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision.models import DenseNet
+from torchvision import transforms
 from tqdm import tqdm
 import json
 import time
-import numpy as np
+from tiling.tile_dataset import TilesDataset
 
 from my_model import MyModel
 from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
@@ -25,16 +26,16 @@ from aws_utils.s3_sagemaker_utils import S3SageMakerUtils
 
 def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False):
     """
-    load_model _summary_
+    load_model Loads the model using a checkpoint dir if necessary
 
-    :param checkpoint_dir: _description_
+    :param checkpoint_dir: Filepath to checkpoint directory for mid train saving
     :type checkpoint_dir: str
-    :param my_model: _description_
+    :param my_model: MyModel class hosting the PyTorch model
     :type my_model: MyModel
-    :param distributed: _description_, defaults to False
+    :param distributed: Determines if distributed learning is occurring, defaults to False
     :type distributed: bool, optional
-    :return: _description_
-    :rtype: _type_
+    :return: Returns the epoch number at which the checkpoint has saved, or double the output model.
+    :rtype: int
     """
     if distributed:
         # Initialize the distributed environment.
@@ -65,46 +66,49 @@ def load_model(checkpoint_dir: str, my_model: MyModel, distributed: bool = False
     return epoch_number
 
 
-def get_region_labels(dataset):
-    region_labels = []
-    for filename in dataset._filepaths:
-        label = dataset.get_label(filename) # should be 0, 1, or 2
-        regions_in_filename = dataset.number_of_regions(filename)
-        region_labels.extend([label] * regions_in_filename)
-    return region_labels
-
-
-def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False):
-    """hello"""
+def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label_encoder, distributed=False, val=False, tiled=False, augmentation=False):
     dataset, data_loader = {}, {}
-    dataset['train'] = Dataset(data_dir=train_dir,
+    transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.RandomVerticalFlip(),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation((0, 359))
+    ])
+    dataset['train'] = Dataset(data=train_dir,
                                labels=LabelManager(
                                    train_dir,
                                    label_postprocessor=label_encoder),
                                filtration=filtration,
-                               filtration_cache=filtration_cache)
-    # dataset['val'] = Dataset(data_dir=val_dir,
-    #                          labels=LabelManager(
-    #                              val_dir, label_postprocessor=label_encoder),
-    #                          filtration=filtration,
-    #                          filtration_cache=filtration_cache)
+                               filtration_cache=filtration_cache,
+                               augmentation=transform if augmentation else None)
+    if val:
+        dataset['val'] = Dataset(data=val_dir,
+                                 labels=LabelManager(
+                                     val_dir, label_postprocessor=label_encoder),
+                                 filtration=filtration,
+                                 filtration_cache=filtration_cache)
 
+    if tiled:
+        dataset['train'] = TilesDataset(
+            dataset['train'], '/opt/ml/scoring_data.json')
     train_sampler, val_sampler = None, None
     if distributed:
         train_sampler = DistributedSampler(
             dataset['train'],
             num_replicas=dist.get_world_size(),
             rank=dist.get_rank())
-        # val_sampler = DistributedSampler(
-        #     dataset['val'],
-        #     num_replicas=dist.get_world_size(),
-        #     rank=dist.get_rank())
+    if val:
+        val_sampler = DistributedSampler(
+            dataset['val'],
+            num_replicas=dist.get_world_size(),
+            rank=dist.get_rank())
     else:
-        y_train = get_region_labels(dataset['train'])
+        y_train = dataset['train'].get_region_labels_as_list()
         class_sample_count = np.array(
             list(dataset['train'].get_label_distribution().values()))
-        weight = 1 / (class_sample_count + 1e-6) # in case no values, no div_0
-        samples_weight = torch.from_numpy(np.array([weight[t] for t in y_train])).double()
+        weight = 1 / (class_sample_count + 1e-6)  # in case no values, no div_0
+        samples_weight = torch.from_numpy(
+            np.array([weight[t] for t in y_train])).double()
         train_sampler = WeightedRandomSampler(
             samples_weight, len(samples_weight))
 
@@ -113,12 +117,13 @@ def initialize_data(train_dir: str, val_dir, filtration, filtration_cache, label
                                       sampler=train_sampler,
                                       num_workers=num_workers,
                                       pin_memory=True)
-    # data_loader['val'] = DataLoader(dataset['val'],
-    #                                batch_size=batch_size,
-    #                                shuffle=True,
-    #                                sampler=val_sampler,
-    #                                num_workers=num_workers,
-    #                                pin_memory=True)
+    if val:
+        data_loader['val'] = DataLoader(dataset['val'],
+                                        batch_size=batch_size,
+                                        shuffle=True,
+                                        sampler=val_sampler,
+                                        num_workers=num_workers,
+                                        pin_memory=True)
     return dataset, data_loader
 
 
@@ -171,8 +176,14 @@ def main():
     def label_encoder(x):
         return labels[os.path.basename(x)]
 
+    try:
+        session.download_data(
+            '/opt/ml/', 'digpath-tilescore', 'digpath-data-new/scoring_data.json')
+    except:
+        print('No tiles')
+
     dataset, data_loader = initialize_data(train_dir, test_dir, filtration, filtration_cache, label_encoder,
-                                           distributed=False)
+                                           distributed=False, val=False)
 
     try:
         session.upload_data(filtration_cache, 'digpath-cache',
@@ -186,8 +197,8 @@ def main():
     my_model = MyModel(model, criterion, device,
                        checkpoint_dir, model_dir, optim)
     epoch_number = load_model(checkpoint_dir, my_model, distributed=False)
-    if epoch_number == n_epochs:
-        n_epochs *= 2
+    if epoch_number >= n_epochs:
+        n_epochs = epoch_number + 10
 
     start_time = time.time()
     writer = SummaryWriter('/opt/ml/output/tensorboard/')
